@@ -87,6 +87,28 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 
         $nameIdPolicy = $enhancedRequest->getNameIdPolicy();
         $this->assertEquals($nameIdPolicy['Format'], 'fooFormat');
+        $this->assertTrue($nameIdPolicy['AllowCreate']);
+    }
+
+    public function testAllowCreateIsOmittedForTransientNameIDFormat()
+    {
+        $proxyServer = $this->factoryProxyServer();
+        $originalRequest = $this->factoryOriginalRequest();
+
+        $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
+        $identityProvider->nameIdFormat = \SAML2\Constants::NAMEID_TRANSIENT;
+
+        /** @var AuthnRequest $enhancedRequest */
+        $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
+            $originalRequest,
+            $identityProvider,
+            $proxyServer
+        );
+
+        $this->assertSame(
+            ['Format' => \SAML2\Constants::NAMEID_TRANSIENT],
+            $enhancedRequest->getNameIdPolicy()
+        );
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('provideKeyExpectations')]

@@ -44,6 +44,11 @@ class EngineBlock_Saml2_AuthnRequestFactory
             $nameIdPolicy['Format'] = $idpMetadata->nameIdFormat;
         }
 
+        // SAML 2.0 errata E14: AllowCreate="true" must not be combined with the transient format.
+        if ($idpMetadata->nameIdFormat === Constants::NAMEID_TRANSIENT) {
+            unset($nameIdPolicy['AllowCreate']);
+        }
+
         /** @var AuthnRequest $originalRequest */
 
         $sspRequest = new AuthnRequest();
