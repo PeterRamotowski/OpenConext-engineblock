@@ -49,20 +49,4 @@ class EngineBlock_X509_PrivateKey
         $privateKeyObj->loadKey($this->_filePath, true);
         return $privateKeyObj;
     }
-
-    /**
-     * Sign some data with this private key.
-     *
-     * @param string $data
-     * @return string
-     */
-    public function sign($data)
-    {
-        $privateKeyResource = openssl_pkey_get_private('file://' . $this->_filePath);
-
-        $signature = null;
-        openssl_sign($data, $signature, $privateKeyResource);
-
-        return $signature;
-    }
 }

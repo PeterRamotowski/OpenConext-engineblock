@@ -87,31 +87,6 @@ class EngineBlock_Saml2_AuthnRequestFactory
     }
 
     /**
-     * @param string $destinationUrl
-     * @param string $assertionConsumerServiceURL
-     * @param string $issuerUrl
-     * @return AuthnRequest
-     */
-    public function create(
-        $destinationUrl,
-        $assertionConsumerServiceURL,
-        $issuerUrl
-    )
-    {
-        $request = new AuthnRequest();
-        $request->setDestination($destinationUrl);
-        $request->setAssertionConsumerServiceURL($assertionConsumerServiceURL);
-        $request->setIssuer($issuerUrl);
-        $request->setProtocolBinding(Constants::BINDING_HTTP_POST);
-        $request->setNameIdPolicy(array(
-            'Format' => Constants::NAMEID_TRANSIENT,
-            'AllowCreate' => true
-        ));
-
-        return $request;
-    }
-
-    /**
      * @param EngineBlock_Http_Request $httpRequest
      * @return AuthnRequest
      */
