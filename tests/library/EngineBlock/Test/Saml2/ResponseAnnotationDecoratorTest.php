@@ -34,6 +34,8 @@ class EngineBlock_Test_Saml2_ResponseAnnotationDecoratorTest extends \PHPUnit\Fr
         $restored = unserialize($serialized);
 
         $this->assertEquals('ss:mem:response-relay-456', $restored->getRelayState(), 'RelayState should survive serialization in Response');
+        $this->assertSame(Response::class, get_class($restored->getSspMessage()));
+        $this->assertSame('RS1', $restored->getId());
     }
 
 }

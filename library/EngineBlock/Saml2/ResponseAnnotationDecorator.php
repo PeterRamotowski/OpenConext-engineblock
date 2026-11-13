@@ -366,7 +366,7 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
             $messageDomElement = $document->getElementsByTagNameNS('urn:oasis:names:tc:SAML:2.0:protocol', 'Response')->item(0);
 
             if ($messageDomElement) {
-                $this->sspMessage = \OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Response::fromXML($messageDomElement);
+                $this->sspMessage = Response::fromXML($messageDomElement);
             }
 
             if ($this->_serializableRelayState !== null) {
