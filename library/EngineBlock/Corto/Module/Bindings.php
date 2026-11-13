@@ -36,6 +36,7 @@ use SAML2\HTTPRedirect;
 use SAML2\Message;
 use SAML2\Response;
 use SAML2\Signature\PublicKeyValidator;
+use SAML2\Utils;
 use Twig\Environment;
 
 /**
@@ -379,7 +380,10 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
                 );
             }
 
+            $this->logEncryptedAssertionLayouts($sspResponse, $idpEntityId->getValue());
+
             try {
+                $this->logMissingDestination($sspResponse, $idpEntityId->getValue());
                 if ($sspResponse->getDestination() === null) {
                     // SAML2 requires a destination, while EngineBlock allows
                     // messages without Destination element.
@@ -911,6 +915,70 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     private function hasEncryptedAssertion(Response $sspResponse)
     {
         return array_any($sspResponse->getAssertions(), fn($assertion) => $assertion instanceof EncryptedAssertion);
+    }
+
+    /**
+     * Rollout diagnostics: the issuer and signature presence come from unverified XML.
+     */
+    private function logMissingDestination(Response $sspResponse, string $issuer): void
+    {
+        if ($sspResponse->getDestination() !== null) {
+            return;
+        }
+
+        $this->_logger->notice(
+            'Received Response without Destination',
+            [
+                'issuer' => $issuer,
+                'response_signed' => $sspResponse->isMessageConstructedWithSignature(),
+            ]
+        );
+    }
+
+    /**
+     * Rollout diagnostics: the issuer, algorithms and key layout come from unverified XML.
+     * The parsed assertion retains only EncryptedData, so the layout describes its KeyInfo
+     * alone: keys outside it are not seen, e.g. an inline key plus an unreferenced sibling
+     * logs as "single-key-in-key-info". Never use the layout label to decide acceptance.
+     */
+    private function logEncryptedAssertionLayouts(Response $sspResponse, string $issuer): void
+    {
+        foreach ($sspResponse->getAssertions() as $assertion) {
+            if (!$assertion instanceof EncryptedAssertion) {
+                continue;
+            }
+
+            $encryptedData = Utils::xpQuery($assertion->toXML(), './xenc:EncryptedData')[0];
+            $encryptedKeys = Utils::xpQuery($encryptedData, './ds:KeyInfo/xenc:EncryptedKey');
+            $retrievalMethods = Utils::xpQuery($encryptedData, './ds:KeyInfo/ds:RetrievalMethod');
+
+            $keyLayout = match (true) {
+                count($retrievalMethods) > 0 => 'retrieval-method',
+                count($encryptedKeys) > 1 => 'multiple-keys-in-key-info',
+                count($encryptedKeys) === 1 => 'single-key-in-key-info',
+                default => 'no-key-in-key-info',
+            };
+
+            $this->_logger->notice(
+                'Received encrypted Assertion',
+                [
+                    'issuer' => $issuer,
+                    'content_encryption_algorithm' => $this->getEncryptionMethodAlgorithm($encryptedData),
+                    'key_transport_algorithms' => array_map(
+                        fn(DOMElement $encryptedKey) => $this->getEncryptionMethodAlgorithm($encryptedKey),
+                        $encryptedKeys
+                    ),
+                    'key_layout' => $keyLayout,
+                ]
+            );
+        }
+    }
+
+    private function getEncryptionMethodAlgorithm(DOMElement $element): ?string
+    {
+        $algorithm = Utils::xpQuery($element, './xenc:EncryptionMethod/@Algorithm');
+
+        return $algorithm === [] ? null : $algorithm[0]->value;
     }
 
     /**

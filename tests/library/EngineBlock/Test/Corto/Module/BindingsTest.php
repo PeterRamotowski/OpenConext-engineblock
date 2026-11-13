@@ -30,6 +30,7 @@ use OpenConext\EngineBlock\Service\Wayf\RememberedIdpCookie;
 use OpenConext\EngineBlockBridge\Logger\LoginLogger;
 use OpenConext\EngineBlockBundle\Bridge\DiContainerRuntime;
 use OpenConext\EngineBlockBundle\Service\WayfRenderer;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SAML2\Assertion;
 use SAML2\Assertion\Validation\ConstraintValidator\NotBefore;
@@ -37,6 +38,8 @@ use SAML2\Assertion\Validation\ConstraintValidator\NotOnOrAfter;
 use SAML2\Assertion\Validation\Result;
 use SAML2\AuthnRequest;
 use SAML2\Constants;
+use SAML2\DOMDocumentFactory;
+use SAML2\EncryptedAssertion;
 use SAML2\Response;
 
 /**
@@ -356,6 +359,114 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $logger->shouldNotReceive('notice');
 
         $this->checkIssueInstant(time(), 'SP', 'https://sp.example.edu');
+    }
+
+    public function testMissingDestinationLogsNoticeWithIssuerAndSignaturePresence()
+    {
+        $logger = $this->mockLogger();
+        $logger->shouldReceive('notice')->once()->with(
+            'Received Response without Destination',
+            ['issuer' => 'https://idp.example.edu', 'response_signed' => false]
+        );
+
+        $this->invokePrivate('logMissingDestination', new Response(), 'https://idp.example.edu');
+    }
+
+    public function testPresentDestinationLogsNothing()
+    {
+        $logger = $this->mockLogger();
+        $logger->shouldNotReceive('notice');
+
+        $response = new Response();
+        $response->setDestination('https://engine.example.edu/authentication/sp/consume-assertion');
+
+        $this->invokePrivate('logMissingDestination', $response, 'https://idp.example.edu');
+    }
+
+    #[DataProvider('encryptedAssertionLayoutProvider')]
+    public function testEncryptedAssertionLogsAlgorithmsAndKeyLayout(
+        string $keyInfo,
+        string $siblings,
+        array $expectedKeyTransportAlgorithms,
+        string $expectedKeyLayout
+    ) {
+        $logger = $this->mockLogger();
+        $logger->shouldReceive('notice')->once()->with(
+            'Received encrypted Assertion',
+            [
+                'issuer' => 'https://idp.example.edu',
+                'content_encryption_algorithm' => 'http://www.w3.org/2009/xmlenc11#aes256-gcm',
+                'key_transport_algorithms' => $expectedKeyTransportAlgorithms,
+                'key_layout' => $expectedKeyLayout,
+            ]
+        );
+
+        $response = new Response();
+        $response->setAssertions([new Assertion(), $this->createEncryptedAssertion($keyInfo, $siblings)]);
+
+        $this->invokePrivate('logEncryptedAssertionLayouts', $response, 'https://idp.example.edu');
+    }
+
+    public static function encryptedAssertionLayoutProvider(): array
+    {
+        $oaep = 'http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p';
+        $pkcs1 = 'http://www.w3.org/2001/04/xmlenc#rsa-1_5';
+        $retrievalMethod = '<ds:RetrievalMethod URI="#key" Type="http://www.w3.org/2001/04/xmlenc#EncryptedKey"/>';
+
+        return [
+            'single key in KeyInfo' => [self::encryptedKey($oaep), '', [$oaep], 'single-key-in-key-info'],
+            'multiple keys in KeyInfo' => [
+                self::encryptedKey($oaep) . self::encryptedKey($pkcs1),
+                '',
+                [$oaep, $pkcs1],
+                'multiple-keys-in-key-info',
+            ],
+            'RetrievalMethod to sibling key' => [$retrievalMethod, self::encryptedKey($oaep), [], 'retrieval-method'],
+            'unreferenced sibling key' => ['', self::encryptedKey($oaep), [], 'no-key-in-key-info'],
+        ];
+    }
+
+    public function testUnencryptedAssertionLogsNothing()
+    {
+        $logger = $this->mockLogger();
+        $logger->shouldNotReceive('notice');
+
+        $response = new Response();
+        $response->setAssertions([new Assertion()]);
+
+        $this->invokePrivate('logEncryptedAssertionLayouts', $response, 'https://idp.example.edu');
+    }
+
+    private static function encryptedKey(string $algorithm): string
+    {
+        return sprintf(
+            '<xenc:EncryptedKey Id="key"><xenc:EncryptionMethod Algorithm="%s"/>'
+            . '<xenc:CipherData><xenc:CipherValue>AA==</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey>',
+            $algorithm
+        );
+    }
+
+    private function createEncryptedAssertion(string $keyInfo, string $siblings): EncryptedAssertion
+    {
+        $xml = <<<XML
+<saml:EncryptedAssertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  <xenc:EncryptedData Type="http://www.w3.org/2001/04/xmlenc#Element">
+    <xenc:EncryptionMethod Algorithm="http://www.w3.org/2009/xmlenc11#aes256-gcm"/>
+    <ds:KeyInfo>$keyInfo</ds:KeyInfo>
+    <xenc:CipherData><xenc:CipherValue>AA==</xenc:CipherValue></xenc:CipherData>
+  </xenc:EncryptedData>
+  $siblings
+</saml:EncryptedAssertion>
+XML;
+
+        return new EncryptedAssertion(DOMDocumentFactory::fromString($xml)->documentElement);
+    }
+
+    private function invokePrivate(string $methodName, ...$arguments): void
+    {
+        $method = new ReflectionMethod(EngineBlock_Corto_Module_Bindings::class, $methodName);
+        $method->invoke($this->bindings, ...$arguments);
     }
 
     private function mockLogger()
