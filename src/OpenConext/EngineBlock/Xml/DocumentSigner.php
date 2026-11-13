@@ -24,7 +24,7 @@ use OpenConext\EngineBlock\Exception\RuntimeException;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use SAML2\Utils;
 
-class DocumentSigner
+class DocumentSigner implements DocumentSignerInterface
 {
     public function sign(string $source, X509KeyPair $signingKeyPair) : string
     {
