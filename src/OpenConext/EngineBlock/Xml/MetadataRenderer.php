@@ -24,7 +24,7 @@ use OpenConext\EngineBlock\Metadata\Factory\Helper\IdentityProviderMetadataHelpe
 use OpenConext\EngineBlock\Metadata\Factory\Helper\ServiceProviderMetadataHelper;
 use OpenConext\EngineBlock\Metadata\Factory\IdentityProviderEntityInterface;
 use OpenConext\EngineBlock\Metadata\Factory\ServiceProviderEntityInterface;
-use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlock\Saml2\IdGenerator as SamlIdGenerator;
 use OpenConext\EngineBlock\Service\TimeProvider\TimeProvider;
@@ -59,12 +59,12 @@ class MetadataRenderer
     private $signingKeyPair;
 
     /**
-     * @var KeyPairFactory
+     * @var KeyPairFactoryInterface
      */
     private $keyPairFactory;
 
     /**
-     * @var DocumentSigner
+     * @var DocumentSignerInterface
      */
     private $documentSigner;
     /**
@@ -84,8 +84,8 @@ class MetadataRenderer
         LanguageSupportProvider $languageSupportProvider,
         Environment $twig,
         SamlIdGenerator $samlIdGenerator,
-        KeyPairFactory $keyPairFactory,
-        DocumentSigner $documentSigner,
+        KeyPairFactoryInterface $keyPairFactory,
+        DocumentSignerInterface $documentSigner,
         TimeProvider $timeProvider,
         string $addRequestedAttributes,
         int $metadataExpirationTime

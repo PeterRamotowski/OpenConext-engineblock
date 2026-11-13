@@ -22,7 +22,7 @@ use OpenConext\EngineBlock\Assert\Assertion;
 use OpenConext\EngineBlock\Exception\RuntimeException;
 use OpenConext\EngineBlockBundle\Exception\UnknownKeyIdException;
 
-class KeyPairFactory
+class KeyPairFactory implements KeyPairFactoryInterface
 {
     const DEFAULT_KEY_PAIR_IDENTIFIER = 'default';
 

@@ -29,6 +29,7 @@ use OpenConext\EngineBlock\Metadata\Factory\ServiceProviderEntityInterface;
 use OpenConext\EngineBlock\Metadata\Factory\ValueObject\EngineBlockConfiguration;
 use OpenConext\EngineBlock\Metadata\Mdui;
 use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface;
 use OpenConext\EngineBlockBundle\Configuration\FeatureConfigurationInterface;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
 
@@ -45,7 +46,7 @@ class ServiceProviderFactory
     private $attributes;
 
     /**
-     * @var KeyPairFactory
+     * @var KeyPairFactoryInterface
      */
     private $keyPairFactory;
 
@@ -71,7 +72,7 @@ class ServiceProviderFactory
 
     public function __construct(
         AttributesMetadata $attributes,
-        KeyPairFactory $keyPairFactory,
+        KeyPairFactoryInterface $keyPairFactory,
         EngineBlockConfiguration $engineBlockConfiguration,
         UrlProvider $urlProvider,
         FeatureConfigurationInterface $featureConfiguration,

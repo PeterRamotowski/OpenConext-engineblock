@@ -138,11 +138,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
      */
     public function receiveRequest()
     {
-        // Detect the current binding from the super globals
-        $sspBinding = Binding::getCurrentBinding();
-
-        // Receive the request.
-        $sspRequest = $sspBinding->receive();
+        $sspRequest = $this->receiveMessageFromTransportBinding();
 
         if (!($sspRequest instanceof AuthnRequest)) {
             throw new EngineBlock_Corto_Module_Bindings_UnsupportedBindingException(
@@ -303,11 +299,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             return $sspResponse;
         }
 
-        // Detect the binding being used from the global variables (GET, POST, SERVER)
-        $sspBinding = Binding::getCurrentBinding();
-
-        // Receive a message from the binding
-        $sspResponse = $sspBinding->receive();
+        $sspResponse = $this->receiveMessageFromTransportBinding();
         if (!($sspResponse instanceof Response)) {
             throw new EngineBlock_Corto_Module_Bindings_Exception(
                 sprintf('Unsupported Message received: "%s"', get_class($sspResponse)),
@@ -647,14 +639,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         }
 
         if ($this->shouldMessageBeSigned($sspMessage, $remoteEntity)) {
-            $keyPair = $this->_server->getSigningCertificates($useDefaultKey);
-
-            $sspMessage->setCertificates(array($keyPair->getCertificate()->toPem()));
-            $sspMessage->setSignatureKey(
-                $keyPair->getPrivateKey()->toXmlSecurityKey(
-                    $remoteEntity->getCoins()->signatureMethod()
-                )
-            );
+            $this->configureMessageSigning($sspMessage, $remoteEntity, $useDefaultKey);
         }
 
         $sspBinding = Binding::getBinding($bindingUrn);
@@ -764,6 +749,33 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         // Determine if we should sign the message
         return $remoteEntity->requestsMustBeSigned || $this->_server->getConfig('WantsAuthnRequestsSigned');
+    }
+
+    /**
+     * Receives a request or response from the external transport binding (HTTP-Redirect or HTTP-POST).
+     */
+    private function receiveMessageFromTransportBinding(): Message
+    {
+        return Binding::getCurrentBinding()->receive();
+    }
+
+    /**
+     * Selects the route key, or the default key when forced, and sets it on the message with the
+     * signature method configured for the remote entity.
+     */
+    private function configureMessageSigning(
+        Message $sspMessage,
+        AbstractRole $remoteEntity,
+        bool $useDefaultKey
+    ): void {
+        $keyPair = $this->_server->getSigningCertificates($useDefaultKey);
+
+        $sspMessage->setCertificates(array($keyPair->getCertificate()->toPem()));
+        $sspMessage->setSignatureKey(
+            $keyPair->getPrivateKey()->toXmlSecurityKey(
+                $remoteEntity->getCoins()->signatureMethod()
+            )
+        );
     }
 
     private function assertValidAcsLocationScheme($acsLocation)

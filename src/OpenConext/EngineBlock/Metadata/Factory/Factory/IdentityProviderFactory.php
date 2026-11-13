@@ -27,6 +27,7 @@ use OpenConext\EngineBlock\Metadata\Factory\IdentityProviderEntityInterface;
 use OpenConext\EngineBlock\Metadata\Factory\ValueObject\EngineBlockConfiguration;
 use OpenConext\EngineBlock\Metadata\Mdui;
 use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
 
 /**
@@ -36,7 +37,7 @@ use OpenConext\EngineBlockBundle\Url\UrlProvider;
 class IdentityProviderFactory
 {
     /**
-     * @var KeyPairFactory
+     * @var KeyPairFactoryInterface
      */
     private $keyPairFactory;
 
@@ -50,7 +51,7 @@ class IdentityProviderFactory
      */
     private $urlProvider;
 
-    public function __construct(KeyPairFactory $keyPairFactory, EngineBlockConfiguration $engineBlockConfiguration, UrlProvider $urlProvider)
+    public function __construct(KeyPairFactoryInterface $keyPairFactory, EngineBlockConfiguration $engineBlockConfiguration, UrlProvider $urlProvider)
     {
         $this->keyPairFactory = $keyPairFactory;
         $this->engineBlockConfiguration = $engineBlockConfiguration;

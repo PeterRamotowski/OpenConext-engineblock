@@ -21,7 +21,7 @@ namespace OpenConext\EngineBlock\Xml;
 use OpenConext\EngineBlock\Metadata\Factory\Factory\IdentityProviderFactory;
 use OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\IdpsMetadataRepository;
-use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface;
 use OpenConext\EngineBlockBundle\Exception\EntityCanNotBeFoundException;
 
 class MetadataProvider
@@ -42,7 +42,7 @@ class MetadataProvider
     private $idpFactory;
 
     /**
-     * @var KeyPairFactory
+     * @var KeyPairFactoryInterface
      */
     private $keyPairFactory;
 
@@ -55,7 +55,7 @@ class MetadataProvider
         MetadataRenderer $renderer,
         ServiceProviderFactory $spFactory,
         IdentityProviderFactory $idpFactory,
-        KeyPairFactory $keyPairFactory,
+        KeyPairFactoryInterface $keyPairFactory,
         IdpsMetadataRepository $metadataRepository
     ) {
         $this->renderer = $renderer;
