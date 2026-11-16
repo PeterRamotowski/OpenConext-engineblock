@@ -18,11 +18,7 @@
 
 namespace OpenConext\EngineBlock\Validator;
 
-use Exception;
 use OpenConext\EngineBlock\Exception\InvalidBindingException;
-use SAML2\Binding;
-use SAML2\HTTPPost;
-use SAML2\HTTPRedirect;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -37,23 +33,51 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class SamlBindingValidator implements RequestValidator
 {
+    private const BINDING_HTTP_ARTIFACT = 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact';
+    private const BINDING_SOAP = 'urn:oasis:names:tc:SAML:2.0:bindings:SOAP';
+
     public function isValid(Request $request)
     {
-        try {
-            $binding = Binding::getCurrentBinding();
-        } catch (Exception $e) {
+        $parameters = match ($request->getMethod()) {
+            Request::METHOD_GET => $request->query,
+            Request::METHOD_POST => $request->request,
+            default => null,
+        };
+
+        if ($parameters !== null && ($parameters->has('SAMLRequest') || $parameters->has('SAMLResponse'))) {
+            return true;
+        }
+
+        $unsupportedBinding = null;
+        if ($parameters !== null && $parameters->has('SAMLart')) {
+            $unsupportedBinding = self::BINDING_HTTP_ARTIFACT;
+        } elseif ($request->isMethod(Request::METHOD_POST) && $this->isSoapContentType($request)) {
+            $unsupportedBinding = self::BINDING_SOAP;
+        }
+
+        if ($unsupportedBinding !== null) {
             throw new InvalidBindingException(
-                sprintf('No SAMLRequest or SAMLResponse parameter was found in the HTTP "%s" request parameters', $request->getMethod()),
-                0,
-                $e
+                sprintf('The binding type "%s" is not supported on this endpoint', $unsupportedBinding)
             );
         }
-        if (!($binding instanceof HTTPRedirect || $binding instanceof HTTPPost)) {
-            // We only support HTTP Redirect binding
-            throw new InvalidBindingException(
-                sprintf('The binding type "%s" is not supported on this endpoint', get_class($binding))
-            );
+
+        throw new InvalidBindingException(
+            sprintf(
+                'No SAMLRequest or SAMLResponse parameter was found in the HTTP "%s" request parameters',
+                $request->getMethod()
+            )
+        );
+    }
+
+    private function isSoapContentType(Request $request): bool
+    {
+        $contentType = $request->headers->get('Content-Type');
+        if ($contentType === null) {
+            return false;
         }
-        return true;
+
+        $mediaType = strtolower(trim(explode(';', $contentType)[0]));
+
+        return in_array($mediaType, ['text/xml', 'application/soap+xml'], true);
     }
 }

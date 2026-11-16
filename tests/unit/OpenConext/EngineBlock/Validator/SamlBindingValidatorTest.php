@@ -18,17 +18,12 @@
 
 namespace OpenConext\EngineBlock\Validator;
 
-use Mockery as m;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Exception\InvalidBindingException;
-use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\Request;
 
 class SamlBindingValidatorTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
-
     /**
      * @var SamlBindingValidator
      */
@@ -37,90 +32,74 @@ class SamlBindingValidatorTest extends TestCase
     public function setUp(): void
     {
         $this->validator = new SamlBindingValidator();
-
-        // PHPunit does not reset the superglobals on each run.
-        $_GET = [];
-        $_POST = [];
-        $_SERVER = [];
     }
 
-    #[BackupGlobals(true)]
     public function test_happy_flow_get()
     {
-        // Under the hood, the Binding::getCurrentBinding method is used, which directly reads from the super globals
-        $_SERVER['REQUEST_METHOD'] = 'GET';
-        $_GET['SAMLRequest'] = 'loremipsum';
+        $request = Request::create('/sso', Request::METHOD_GET, ['SAMLRequest' => 'loremipsum']);
 
-        $request = m::mock(Request::class);
-        $request
-            ->shouldReceive('getMethod')
-            ->andReturn(Request::METHOD_GET);
         $this->assertTrue($this->validator->isValid($request));
     }
 
-    #[BackupGlobals(true)]
     public function test_happy_flow_post()
     {
-        // Under the hood, the Binding::getCurrentBinding method is used, which directly reads from the super globals
-        $_SERVER['REQUEST_METHOD'] = 'POST';
-        $_POST['SAMLRequest'] = 'loremipsum';
+        $request = Request::create('/sso', Request::METHOD_POST, ['SAMLResponse' => 'loremipsum']);
 
-        $request = m::mock(Request::class);
-        $request
-            ->shouldReceive('getMethod')
-            ->andReturn(Request::METHOD_POST);
         $this->assertTrue($this->validator->isValid($request));
     }
 
-    #[BackupGlobals(true)]
-    public function test_post_binding_is_not_supported()
+    public function test_query_parameters_do_not_make_a_post_binding()
     {
         $this->expectException(InvalidBindingException::class);
-        $this->expectExceptionMessage('No SAMLRequest or SAMLResponse parameter was found in the HTTP');
+        $this->expectExceptionMessage('No SAMLRequest or SAMLResponse parameter was found in the HTTP "POST" request parameters');
 
-        $_SERVER['REQUEST_METHOD'] = ''; // Prevent Warning: Undefined array key "REQUEST_METHOD" in /var/www/html/vendor/simplesamlphp/saml2/src/SAML2/Binding.php on line 69
-        $request = m::mock(Request::class);
-        $request
-            ->shouldReceive('getMethod')
-            ->andReturn(Request::METHOD_PATCH);
+        $request = Request::create('/sso?SAMLRequest=loremipsum', Request::METHOD_POST);
 
         $this->validator->isValid($request);
     }
 
-    #[BackupGlobals(true)]
+    public function test_post_binding_is_not_supported()
+    {
+        $this->expectException(InvalidBindingException::class);
+        $this->expectExceptionMessage('No SAMLRequest or SAMLResponse parameter was found in the HTTP "PATCH" request parameters');
+
+        $request = Request::create('/sso', Request::METHOD_PATCH, ['SAMLRequest' => 'loremipsum']);
+
+        $this->validator->isValid($request);
+    }
+
     public function test_used_invalid_binding()
     {
         $this->expectException(InvalidBindingException::class);
         $this->expectExceptionMessage('No SAMLRequest or SAMLResponse parameter was found in the HTTP');
 
-        // Under the hood, the Binding::getCurrentBinding method is used, which directly reads from the super globals
-        $_SERVER['REQUEST_METHOD'] = 'GET';
         // Even though we are handling a AuthNRequest, the binding is based on a get parameter named SAMLRequest
-        $_GET['AuhtnRequest'] = 'loremipsum';
-
-        $request = m::mock(Request::class);
-        $request
-            ->shouldReceive('getMethod')
-            ->andReturn(Request::METHOD_GET);
+        $request = Request::create('/sso', Request::METHOD_GET, ['AuhtnRequest' => 'loremipsum']);
 
         $this->validator->isValid($request);
     }
 
-    #[BackupGlobals(true)]
     public function test_used_unsupported_binding()
     {
         $this->expectException(InvalidBindingException::class);
-        $this->expectExceptionMessage('The binding type "SAML2\HTTPArtifact" is not supported on this endpoint');
+        $this->expectExceptionMessage(
+            'The binding type "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact" is not supported on this endpoint'
+        );
 
-        // Under the hood, the Binding::getCurrentBinding method is used, which directly reads from the super globals
-        $_SERVER['REQUEST_METHOD'] = 'GET';
         // EB does not support artifact binding
-        $_GET['SAMLart'] = 'loremipsum';
+        $request = Request::create('/sso', Request::METHOD_GET, ['SAMLart' => 'loremipsum']);
 
-        $request = m::mock(Request::class);
-        $request
-            ->shouldReceive('getMethod')
-            ->andReturn(Request::METHOD_GET);
+        $this->validator->isValid($request);
+    }
+
+    public function test_soap_binding_is_not_supported()
+    {
+        $this->expectException(InvalidBindingException::class);
+        $this->expectExceptionMessage(
+            'The binding type "urn:oasis:names:tc:SAML:2.0:bindings:SOAP" is not supported on this endpoint'
+        );
+
+        $request = Request::create('/sso', Request::METHOD_POST, [], [], [], ['CONTENT_TYPE' => 'text/xml; charset=utf-8']);
 
         $this->validator->isValid($request);
     }
