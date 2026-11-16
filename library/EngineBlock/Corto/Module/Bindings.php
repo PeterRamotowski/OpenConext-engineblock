@@ -348,6 +348,8 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $this->assertKnownIdPSigningKey($cortoIdpMetadata, $sspResponse);
 
         try {
+            $this->logEncryptedAssertionLayouts($sspResponse, $idpEntityId->getValue());
+
             // 'Process' the response, verify the signature, verify the timings.
             if ($this->hasEncryptedAssertion($sspResponse)
                 && !$this->_featureConfiguration->isEnabled('eb.encrypted_assertions')
@@ -371,8 +373,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
                     EngineBlock_Exception::CODE_NOTICE
                 );
             }
-
-            $this->logEncryptedAssertionLayouts($sspResponse, $idpEntityId->getValue());
 
             try {
                 $this->logMissingDestination($sspResponse, $idpEntityId->getValue());
@@ -642,32 +642,20 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             $this->configureMessageSigning($sspMessage, $remoteEntity, $useDefaultKey);
         }
 
-        $sspBinding = Binding::getBinding($bindingUrn);
+        $this->sendMessageUsingTransportBinding($message, $remoteEntity);
+    }
+
+    /**
+     * Serializes and delivers a message through an external HTTP binding.
+     */
+    private function sendMessageUsingTransportBinding(
+        EngineBlock_Saml2_MessageAnnotationDecorator $message,
+        AbstractRole $remoteEntity
+    ): void {
+        $sspMessage = $message->getSspMessage();
+        $sspBinding = Binding::getBinding($message->getDeliverByBinding());
         if ($sspBinding instanceof HTTPPost) {
-
-            // SAML2int dictates that we MUST sign assertions.
-            // The SAML2 library will do that for us, if we just set the key to sign with.
-            if ($sspMessage instanceof Response) {
-                foreach ($sspMessage->getAssertions() as $assertion) {
-                    $assertion->setCertificates($sspMessage->getCertificates());
-                    $assertion->setSignatureKey($sspMessage->getSignatureKey());
-                }
-
-                // According to saml2int 0.2, the assertion element must be directly signed, which we do.
-                // This suffices for most SP's. However, some SP's require the outer Response element to be signed directly.
-                // If configured to do so for that SP, Engineblock will sign the outer response element in addition to the signed Assertion element.
-                // It might make sense in the future to always sign both, if it has been shown that this causes no problems.
-                if ($remoteEntity instanceof ServiceProvider && $remoteEntity->getCoins()->signResponse()) {
-                    $messageElement = $sspMessage->toSignedXML();
-                } else {
-                    $messageElement = $sspMessage->toUnsignedXML();
-                }
-            }
-            else {
-                $messageElement = $sspMessage->toSignedXML();
-            }
-
-            $xml = $messageElement->ownerDocument->saveXML($messageElement);
+            $xml = $this->serializeMessageForPostBinding($sspMessage, $remoteEntity);
 
             // If the processed assertion consumer service is set on the response, it is posted back to the SP using the
             // the 'return' hidden form field.
@@ -710,22 +698,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             $this->_server->sendOutput($output);
 
         } else if ($sspBinding instanceof HTTPRedirect) {
-            if ($sspMessage instanceof Response) {
-                throw new EngineBlock_Corto_Module_Bindings_UnsupportedBindingException(
-                    'May not send a response via HTTP redirect'
-                );
-            }
-
-            $url = $sspBinding->getRedirectURL($sspMessage);
-
-            if ($remoteEntity instanceof IdentityProvider) {
-                $domainHint = $remoteEntity->getCoins()->azureDomainHint();
-                if (!empty($domainHint)) {
-                    $separator = str_contains($url, '?') ? '&' : '?';
-                    $url .= $separator . http_build_query(['whr' => $domainHint]);
-                }
-            }
-
+            $url = $this->buildMessageRedirectUrl($sspBinding, $sspMessage, $remoteEntity);
             $this->_server->redirect($url, $message);
         }
         else {
@@ -733,6 +706,50 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
                 'Unsupported Binding'
             );
         }
+    }
+
+    private function serializeMessageForPostBinding(Message $sspMessage, AbstractRole $remoteEntity): string
+    {
+        if ($sspMessage instanceof Response) {
+            // Sign every assertion, and the outer Response only when the SP requests it.
+            foreach ($sspMessage->getAssertions() as $assertion) {
+                $assertion->setCertificates($sspMessage->getCertificates());
+                $assertion->setSignatureKey($sspMessage->getSignatureKey());
+            }
+
+            if ($remoteEntity instanceof ServiceProvider && $remoteEntity->getCoins()->signResponse()) {
+                $messageElement = $sspMessage->toSignedXML();
+            } else {
+                $messageElement = $sspMessage->toUnsignedXML();
+            }
+        } else {
+            $messageElement = $sspMessage->toSignedXML();
+        }
+
+        return $messageElement->ownerDocument->saveXML($messageElement);
+    }
+
+    private function buildMessageRedirectUrl(
+        HTTPRedirect $binding,
+        Message $sspMessage,
+        AbstractRole $remoteEntity
+    ): string {
+        if ($sspMessage instanceof Response) {
+            throw new EngineBlock_Corto_Module_Bindings_UnsupportedBindingException(
+                'May not send a response via HTTP redirect'
+            );
+        }
+
+        $url = $binding->getRedirectURL($sspMessage);
+        if ($remoteEntity instanceof IdentityProvider) {
+            $domainHint = $remoteEntity->getCoins()->azureDomainHint();
+            if (!empty($domainHint)) {
+                $separator = str_contains($url, '?') ? '&' : '?';
+                $url .= $separator . http_build_query(['whr' => $domainHint]);
+            }
+        }
+
+        return $url;
     }
 
     protected function shouldMessageBeSigned(Message $sspMessage, AbstractRole $remoteEntity)
