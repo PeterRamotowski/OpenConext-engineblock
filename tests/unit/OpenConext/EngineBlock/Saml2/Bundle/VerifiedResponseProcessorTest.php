@@ -18,6 +18,8 @@
 
 namespace OpenConext\EngineBlock\Saml2\Bundle;
 
+use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\XmlSecurity;
 use PHPUnit\Framework\Attributes\RequiresMethod;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -25,7 +27,9 @@ use Psr\Log\NullLogger;
 use SimpleSAML\SAML2\Assertion\Exception\InvalidAssertionException;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
+use SimpleSAML\SAML2\Compat\AbstractContainer;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
 use SimpleSAML\SAML2\Response\Exception\InvalidSignatureException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response;
@@ -35,6 +39,7 @@ use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
+use Surfnet\SamlBundle\SAML2\Response\LocalAssertionDecrypter;
 use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Symfony\Component\Clock\MockClock;
 
@@ -51,14 +56,27 @@ class VerifiedResponseProcessorTest extends TestCase
 
     private ServiceProvider $serviceProvider;
 
+    private array $keyFiles = [];
+
+    private AbstractContainer $originalContainer;
+
     protected function setUp(): void
     {
+        $this->originalContainer = ContainerSingleton::getInstance();
         ContainerSingleton::setContainer(new BridgeContainer(new NullLogger(), new MockClock('2026-11-04T12:00:00Z')));
         $this->serviceProvider = new ServiceProvider([
             'entityId' => self::SP_ENTITY_ID,
             'assertionConsumerUrl' => self::ACS,
             'privateKeys' => [],
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        ContainerSingleton::setContainer($this->originalContainer);
+        foreach ($this->keyFiles as $file) {
+            unlink($file);
+        }
     }
 
     #[Test]
@@ -193,11 +211,75 @@ class VerifiedResponseProcessorTest extends TestCase
         $this->processor()->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
     }
 
-    private function processor(): VerifiedResponseProcessor
+    #[Test]
+    public function anEncryptedAssertionRetainsItsVerifiedAlgorithmWithoutLeakingItToTheNextResponse(): void
     {
+        $encrypted = $this->encryptedAssertion($this->signedAssertion($this->assertion()));
+        $response = $this->signedResponse($this->response('_encrypted', $encrypted), 'idp', self::RSA_SHA512);
+        $decrypter = new PolicyCheckingAssertionDecrypter(new LocalAssertionDecrypter(new PrivateKeyLoader()));
+        $processor = $this->processor($decrypter);
+
+        $result = $processor->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
+
+        self::assertSame(self::RSA_SHA512, $result->getResponseSignatureMethod());
+        self::assertSame(self::RSA_SHA256, $result->getAssertionSignatureMethod());
+        self::assertSame('john-doe', $result->getAssertion()->getSubject()->getIdentifier()->getContent()->getValue());
+        self::assertNull($decrypter->getSignatureMethod());
+
+        $next = $this->signedResponse($this->response('_next', $this->assertion()), 'idp');
+        $nextResult = $processor->process($this->serviceProvider, $this->identityProvider(), self::ACS, $next);
+        self::assertNull($nextResult->getAssertionSignatureMethod());
+    }
+
+    #[Test]
+    public function aConfiguredForbiddenAlgorithmInsideEncryptionIsRejected(): void
+    {
+        $encrypted = $this->encryptedAssertion($this->signedAssertion($this->assertion()));
+        $response = $this->signedResponse($this->response('_forbidden-inner', $encrypted), 'idp', self::RSA_SHA512);
+        $decrypter = new PolicyCheckingAssertionDecrypter(
+            new LocalAssertionDecrypter(new PrivateKeyLoader()),
+            [self::RSA_SHA256]
+        );
+        $this->expectException(UnsupportedSignatureAlgorithmException::class);
+
+        try {
+            $this->processor($decrypter, [self::RSA_SHA256])
+                ->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
+        } finally {
+            self::assertNull($decrypter->getSignatureMethod());
+        }
+    }
+
+    private function encryptedAssertion(string $assertion): string
+    {
+        $key = GeneratedKeyPair::named('engine');
+        $keyFile = tempnam(sys_get_temp_dir(), 'eb-decryption-key');
+        $this->keyFiles[] = $keyFile;
+        file_put_contents($keyFile, $key->privateKeyPem());
+        $this->serviceProvider = new ServiceProvider([
+            'entityId' => self::SP_ENTITY_ID,
+            'assertionConsumerUrl' => self::ACS,
+            'privateKeys' => [new PrivateKey($keyFile, PrivateKey::NAME_DEFAULT)],
+        ]);
+
+        $encrypted = XmlSecurity::encryptAssertion(
+            DOMDocumentFactory::fromString($assertion)->documentElement,
+            $key->certificateData(),
+            null
+        );
+
+        return $encrypted->ownerDocument->saveXML($encrypted);
+    }
+
+    private function processor(
+        ?PolicyCheckingAssertionDecrypter $decrypter = null,
+        array $forbiddenAlgorithms = []
+    ): VerifiedResponseProcessor {
         return new VerifiedResponseProcessor(
-            new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), new NullLogger()),
-            new ResponseEnvelopeVerifier(new NullLogger())
+            new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), new NullLogger(), assertionDecrypter: $decrypter),
+            new ResponseEnvelopeVerifier(new NullLogger()),
+            $decrypter,
+            $forbiddenAlgorithms
         );
     }
 

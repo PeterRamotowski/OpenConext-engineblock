@@ -18,6 +18,14 @@ services:
         arguments:
             - '@surfnet_saml.saml2.response_processor'
             - '@OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter'
+            - '%forbidden_signature_methods%'
+
+    OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter:
+        decorates: surfnet_saml.saml2.assertion_decrypter
+        arguments:
+            - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter.inner'
+            - '%forbidden_signature_methods%'
 
     OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier:
         arguments:

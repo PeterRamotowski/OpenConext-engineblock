@@ -31,6 +31,8 @@ final class VerifiedResponse
     public function __construct(
         private readonly ?Response $verifiedEnvelope,
         private readonly Assertion $assertion,
+        private readonly ?string $responseSignatureMethod = null,
+        private readonly ?string $assertionSignatureMethod = null,
     ) {
     }
 
@@ -47,5 +49,15 @@ final class VerifiedResponse
     public function getAssertion(): Assertion
     {
         return $this->assertion;
+    }
+
+    public function getResponseSignatureMethod(): ?string
+    {
+        return $this->responseSignatureMethod;
+    }
+
+    public function getAssertionSignatureMethod(): ?string
+    {
+        return $this->assertionSignatureMethod;
     }
 }
