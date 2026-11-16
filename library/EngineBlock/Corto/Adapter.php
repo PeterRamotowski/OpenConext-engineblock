@@ -53,7 +53,7 @@ class EngineBlock_Corto_Adapter
 
         $request = $this->_proxyServer
             ->getBindingsModule()
-            ->receiveRequest();
+            ->receiveRequest($idPProviderHash);
 
         $this->_filterRemoteEntitiesByRequestSp($request);
         $this->_filterRemoteEntitiesByRequestSpWorkflowState($request);

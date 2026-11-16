@@ -11,6 +11,8 @@ who are in the middle of a login during the upgrade must restart it.
   roll forward also require a fresh cookie name; a rollback keeps `main`. PHP deserializes session data before
   EngineBlock can check it, so a new cookie name alone does not keep releases apart. See
   [docs/session_cutover.md](docs/session_cutover.md).
+- Present AuthnRequest signatures are always verified, even when signing is optional. Outgoing authentication
+  requests expire after five minutes and accept one response, from the intended IdP at the intended ACS.
 
 ## 7.2.0
 

@@ -97,6 +97,16 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
      */
     private array $attributeValueTypes = [];
 
+    /**
+     * Algorithms of the signatures verified on receipt. The verified message no longer carries them,
+     * and they are only checked in the receiving request, so they are not serialized.
+     */
+    private ?string $verifiedSignatureMethod = null;
+
+    private ?string $verifiedAssertionSignatureMethod = null;
+
+    private bool $hasVerifiedSignatureMethods = false;
+
     public function __construct(Response $response, ?string $relayState = null)
     {
         $this->sspMessage = $response;
@@ -267,12 +277,30 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
      */
     public function getAssertionSignatureMethod(): ?string
     {
+        if ($this->hasVerifiedSignatureMethods) {
+            return $this->verifiedAssertionSignatureMethod;
+        }
+
         return $this->getAssertion()
             ->getSignature()
             ?->getSignedInfo()
             ->getSignatureMethod()
             ->getAlgorithm()
             ->getValue();
+    }
+
+    #[Override]
+    public function getSignatureMethod(): ?string
+    {
+        return $this->hasVerifiedSignatureMethods ? $this->verifiedSignatureMethod : parent::getSignatureMethod();
+    }
+
+    public function setVerifiedSignatureMethods(?string $responseMethod, ?string $assertionMethod): static
+    {
+        $this->hasVerifiedSignatureMethods = true;
+        $this->verifiedSignatureMethod = $responseMethod;
+        $this->verifiedAssertionSignatureMethod = $assertionMethod;
+        return $this;
     }
 
     /**

@@ -17,6 +17,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpFoundation\Exception\SessionNotFoundException;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -170,5 +171,60 @@ class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
 
         $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
         $this->repo->findRequestById('_old');
+    }
+
+    public function test_pending_request_is_consumed_once_and_its_sp_link_remains(): void
+    {
+        $this->linkPendingRequest();
+        $this->session->replace(unserialize(serialize($this->session->all())));
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1001);
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1002);
+    }
+
+    #[DataProvider('invalidPendingRequestProvider')]
+    public function test_pending_request_rejects_expiry_and_wrong_target(
+        string $issuer,
+        string $destination,
+        int $now,
+        string $exception
+    ): void {
+        $this->linkPendingRequest();
+        $this->expectException($exception);
+        $this->repo->consumePendingRequest('_idp', $issuer, $destination, $now);
+    }
+
+    public static function invalidPendingRequestProvider(): array
+    {
+        return [
+            'expired at boundary' => ['https://idp', 'https://engine/acs', 1300, EngineBlock_Corto_Module_Services_SessionLostException::class],
+            'future request' => ['https://idp', 'https://engine/acs', 939, EngineBlock_Corto_Module_Services_SessionLostException::class],
+            'another IdP' => ['https://other-idp', 'https://engine/acs', 1001, EngineBlock_Corto_Module_Bindings_VerificationException::class],
+            'another ACS' => ['https://idp', 'https://engine/stepup', 1001, EngineBlock_Corto_Module_Bindings_VerificationException::class],
+        ];
+    }
+
+    public function test_wrong_target_does_not_consume_the_legitimate_pending_request(): void
+    {
+        $this->linkPendingRequest();
+        try {
+            $this->repo->consumePendingRequest('_idp', 'https://other-idp', 'https://engine/acs', 1001);
+            $this->fail('A response from a different IdP must be rejected');
+        } catch (EngineBlock_Corto_Module_Bindings_VerificationException) {
+            $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1299);
+            $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+        }
+    }
+
+    private function linkPendingRequest(): void
+    {
+        $spRequest = $this->makeRequest('_sp');
+        $idpRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest([
+            'id' => '_idp', 'issueInstant' => 1000, 'acsUrl' => 'https://engine/acs',
+        ]);
+        $this->repo->store($spRequest);
+        $this->repo->link($idpRequest, $spRequest, 'https://idp');
     }
 }

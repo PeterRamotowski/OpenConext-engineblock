@@ -476,7 +476,7 @@ class EngineBlock_Corto_ProxyServer
         // Store the original Request
         $authnRequestRepository = $diContainer->getAuthnRequestSessionRepository();
         $authnRequestRepository->store($spRequest);
-        $authnRequestRepository->link($ebRequest, $spRequest);
+        $authnRequestRepository->link($ebRequest, $spRequest, $identityProvider->entityId);
 
         $correlationIdService = $diContainerRuntime->correlationIdService;
         $correlationIdService->mint($spRequest->getId());
@@ -558,7 +558,7 @@ class EngineBlock_Corto_ProxyServer
         $diContainerRuntime = EngineBlock_ApplicationSingleton::getInstance()->getDiContainerRuntime();
         $authnRequestRepository = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getAuthnRequestSessionRepository();
         $authnRequestRepository->store($spRequest);
-        $authnRequestRepository->link($ebRequest, $spRequest);
+        $authnRequestRepository->link($ebRequest, $spRequest, $identityProvider->entityId);
 
         $correlationIdService = $diContainerRuntime->correlationIdService;
         $correlationIdService->mint($spRequest->getId());
@@ -1127,6 +1127,17 @@ class EngineBlock_Corto_ProxyServer
         }
 
         return $spRequest;
+    }
+
+    public function consumePendingRequest(string $requestId, string $identityProvider, string $destination): void
+    {
+        EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getAuthnRequestSessionRepository()
+            ->consumePendingRequest(
+                $requestId,
+                $identityProvider,
+                $destination,
+                \SimpleSAML\SAML2\Compat\ContainerSingleton::getInstance()->getClock()->now()->getTimestamp()
+            );
     }
 
 ////////  ATTRIBUTE FILTERING /////////
