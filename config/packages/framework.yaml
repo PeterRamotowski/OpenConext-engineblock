@@ -4,6 +4,7 @@ parameters:
     #   4102bffe58a9ecbce3c7c934e0aa8ece46efcf82/library/EngineBlock/Application/Bootstrapper.php#L242
     locale: en
     container.autowiring.strict_mode: true
+    session_cookie_name: engineblock_session_v7
 
     # This value is used as cache-buster, replaced by the release script
     asset_version: "#ASSET_VERSION#"
