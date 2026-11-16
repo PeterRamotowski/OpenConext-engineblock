@@ -19,8 +19,9 @@
 use OpenConext\EngineBlock\Metadata\AttributeReleasePolicy;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use Psr\Log\LoggerInterface;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
 
 class EngineBlock_Corto_Filter_Command_AddIdentityAttributes extends EngineBlock_Corto_Filter_Command_Abstract
     implements EngineBlock_Corto_Filter_Command_ResponseAttributesModificationInterface
@@ -79,11 +80,9 @@ class EngineBlock_Corto_Filter_Command_AddIdentityAttributes extends EngineBlock
             // Now check if we should update the NameID value according to the 'use_as_nameid' directive in the ARP.
             $arpSubstitute = $this->substituteResolver->findNameIdSubstitute($arp, $this->getResponseAttributes());
             if ($arpSubstitute !== null) {
-                $nameId = new NameID();
-                $nameId->setFormat(Constants::NAMEID_UNSPECIFIED);
-                $nameId->setValue($arpSubstitute);
+                $nameId = Saml2Value::nameId((string) $arpSubstitute, Constants::NAMEID_UNSPECIFIED);
                 $isResolved = true;
-                $this->_response->getAssertion()->setNameId($nameId);
+                $this->_response->setNameId($nameId);
             }
         }
 
@@ -98,7 +97,7 @@ class EngineBlock_Corto_Filter_Command_AddIdentityAttributes extends EngineBlock
             );
 
             $this->logger->info('Setting the NameId on the Assertion');
-            $this->_response->getAssertion()->setNameId($nameId);
+            $this->_response->setNameId($nameId);
         }
 
         // If there's an ARP, but it does not contain the EPTI, we're done now.

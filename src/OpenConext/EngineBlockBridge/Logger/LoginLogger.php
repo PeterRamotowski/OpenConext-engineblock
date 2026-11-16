@@ -78,7 +78,7 @@ class LoginLogger
             $request->getKeyId(),
             $requesterChain,
             $response->getNameIdValue(),
-            $response->getAssertion()->getAuthnContextClassRef(),
+            $response->getAuthnContextClassRef(),
             $request->getDestination(),
             $request->getIDPList(),
             $logAttributes

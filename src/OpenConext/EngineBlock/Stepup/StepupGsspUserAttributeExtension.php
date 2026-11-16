@@ -18,56 +18,76 @@
 
 namespace OpenConext\EngineBlock\Stepup;
 
-use DOMElement;
-use SAML2\Assertion;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
+use Dom\Element;
+use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
+use OpenConext\EngineBlock\Saml2\Message\AttributeMapper;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\samlp\Extensions;
 use SimpleSAML\XML\Chunk;
+use SimpleSAML\XML\DOMDocumentFactory;
 
 class StepupGsspUserAttributeExtension
 {
+    public const NS = 'urn:mace:surf.nl:stepup:gssp-extensions';
+
     /**
+     * Add (or replace) the gssp:UserAttributes extension, keeping all other extensions of the request.
+     *
      * @param string[] $userAttributes
      */
-    public static function add(Message $message, Assertion $assertion, array $userAttributes)
-    {
-        $assertionAttributes = $assertion->getAttributes();
+    public static function add(
+        EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
+        Assertion $assertion,
+        array $userAttributes
+    ): void {
+        $assertionAttributes = AttributeMapper::toFlat($assertion);
         $stepupUserAttributes = array_filter($assertionAttributes, function ($attributeKey) use ($userAttributes) {
             return in_array($attributeKey, $userAttributes);
         }, ARRAY_FILTER_USE_KEY);
-
 
         if (count($stepupUserAttributes) === 0) {
             return;
         }
 
         $dom = DOMDocumentFactory::create();
-        $ce = $dom->createElementNS('urn:mace:surf.nl:stepup:gssp-extensions', 'gssp:UserAttributes');
+        $ce = $dom->createElementNS(self::NS, 'gssp:UserAttributes');
         $ce->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance');
         $ce->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:xs', 'http://www.w3.org/2001/XMLSchema');
+        $dom->appendChild($ce);
 
+        $nameFormat = AttributeMapper::nameFormat($assertion);
         foreach ($stepupUserAttributes as $attributeKey => $attributeValues) {
-            self::addAttribute($ce, $attributeKey, $assertion->getAttributeNameFormat(), $attributeValues);
+            self::addAttribute($ce, $attributeKey, $nameFormat, $attributeValues);
         }
 
-        $ext = $message->getExtensions();
-        $ext['saml:Extensions'] = new Chunk($ce);
+        $extensions = array_values(array_filter(
+            $request->getExtensions()?->getElements() ?? [],
+            static fn ($element) => !($element instanceof Chunk
+                && $element->getNamespaceURI() === self::NS
+                && $element->getLocalName() === 'UserAttributes')
+        ));
+        $extensions[] = new Chunk($ce);
 
-        $message->setExtensions($ext);
+        $request->setExtensions(new Extensions($extensions));
     }
 
     /**
-     * @param string[] $values
+     * @param array<string|mixed> $values Only scalar values can be sent to the Stepup Gateway
      */
-    public static function addAttribute(DOMElement $parent, string $name, string $format, array $values): void
+    public static function addAttribute(Element $parent, string $name, string $format, array $values): void
     {
-        $attrib = $parent->ownerDocument->createElementNS('urn:oasis:names:tc:SAML:2.0:assertion', 'saml:Attribute');
+        $document = $parent->ownerDocument;
+        $attrib = $document->createElementNS('urn:oasis:names:tc:SAML:2.0:assertion', 'saml:Attribute');
         $attrib->setAttribute('NameFormat', $format);
         $attrib->setAttribute('Name', $name);
 
         foreach ($values as $value) {
-            $attribValue = $parent->ownerDocument->createElementNS('urn:oasis:names:tc:SAML:2.0:assertion', 'saml:AttributeValue', $value);
-            $attribValue->setAttribute('xsi:type', 'xs:string');
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $attribValue = $document->createElementNS('urn:oasis:names:tc:SAML:2.0:assertion', 'saml:AttributeValue');
+            $attribValue->textContent = (string) $value;
+            $attribValue->setAttributeNS('http://www.w3.org/2001/XMLSchema-instance', 'xsi:type', 'xs:string');
             $attrib->appendChild($attribValue);
         }
 

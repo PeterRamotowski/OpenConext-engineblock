@@ -92,7 +92,18 @@ class ProcessingStateHelper implements ProcessingStateHelperInterface
             );
         }
 
-        return $processing[$requestId][$name];
+        $step = $processing[$requestId][$name];
+        // D7: state that was not written by this release is never trusted; the flow restarts via session-lost feedback.
+        if (!$step instanceof ProcessingStateStep
+            || !$step->getResponse() instanceof EngineBlock_Saml2_ResponseAnnotationDecorator
+        ) {
+            throw new EngineBlock_Corto_Module_Services_SessionLostException(
+                sprintf('Stored process step "%s" for ResponseID "%s" is not readable by this release', $name, $requestId)
+            );
+        }
+        $step->getResponse()->assertRestored();
+
+        return $step;
     }
 
     public function hasStepRequestById(string $requestId, string $name): bool

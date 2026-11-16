@@ -25,9 +25,8 @@ use OpenConext\EngineBlockFunctionalTestingBundle\Mock\EntityRegistry;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProviderFactory;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\AuthnRequest;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
-use SAML2\AuthnRequest;
-use SAML2\XML\saml\Issuer;
 
 /**
  * @package OpenConext\EngineBlockFunctionalTestingBundle\Features\Context
@@ -207,10 +206,7 @@ class MockSpContext extends AbstractSubContext
         /** @var MockServiceProvider $sp */
         $sp = $this->mockSpRegistry->get($spName);
 
-        $request = new AuthnRequest();
-        $issuer = new Issuer();
-        $issuer->setValue($sp->entityId());
-        $request->setIssuer($issuer);
+        $request = AuthnRequest::create($sp->entityId());
         $request->setAssertionConsumerServiceURL($acsLocation);
         $sp->setAuthnRequest($request);
 
@@ -224,11 +220,8 @@ class MockSpContext extends AbstractSubContext
         /** @var MockServiceProvider $sp */
         $sp = $this->mockSpRegistry->get($spName);
 
-        $request = new AuthnRequest();
-        $issuer = new Issuer();
-        $issuer->setValue($sp->entityId());
+        $request = AuthnRequest::create($sp->entityId());
         $request->setRelayState('RelayState jonguh');
-        $request->setIssuer($issuer);
         $request->setAssertionConsumerServiceURL($sp->assertionConsumerServiceLocation());
         $request->setRequestedAuthnContext(['AuthnContextClassRef' => [$loa]]);
         $sp->setAuthnRequest($request);

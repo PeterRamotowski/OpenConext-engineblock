@@ -25,9 +25,7 @@ use OpenConext\EngineBlock\Request\CorrelationIdServiceInterface;
 use OpenConext\EngineBlock\Service\FeedbackStateHelperInterface;
 use OpenConext\EngineBlock\Service\ProcessingStateHelperInterface;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\Constants;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
@@ -185,12 +183,10 @@ class EngineBlock_Test_Corto_Module_Service_AssertionConsumerTest extends TestCa
         Phake::when($responseMock)->isTransparentErrorResponse()->thenReturn(false);
         Phake::when($responseMock)->getStatus()->thenReturn([Constants::STATUS_SUCCESS]);
 
-        $idpIssuer = new Issuer();
-        $idpIssuer->setValue(self::IDP_ENTITY_ID);
-        Phake::when($responseMock)->getIssuer()->thenReturn($idpIssuer);
+        Phake::when($responseMock)->getIssuerValue()->thenReturn(self::IDP_ENTITY_ID);
 
-        // getAssertions()[0] is cloned by serve() before filterInputAssertionAttributes()
-        Phake::when($responseMock)->getAssertions()->thenReturn([new Assertion()]);
+        // The original assertion is kept by serve() before filterInputAssertionAttributes()
+        Phake::when($responseMock)->getAssertion()->thenReturn(EngineBlock_Test_Saml2_MessageFixtures::assertion());
 
         return $responseMock;
     }
@@ -210,9 +206,7 @@ class EngineBlock_Test_Corto_Module_Service_AssertionConsumerTest extends TestCa
 
     private function configureRequestIssuer(string $entityId): void
     {
-        $issuer = new Issuer();
-        $issuer->setValue($entityId);
-        Phake::when($this->requestMock)->getIssuer()->thenReturn($issuer);
+        Phake::when($this->requestMock)->getIssuerValue()->thenReturn($entityId);
     }
 
     /**

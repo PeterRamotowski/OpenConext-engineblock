@@ -22,9 +22,7 @@ use Monolog\Logger;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\ShibMdScope;
 use PHPUnit\Framework\TestCase;
-use SAML2\Constants;
-use SAML2\Assertion;
-use SAML2\Response;
+use SimpleSAML\SAML2\Constants;
 
 class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectIdTest extends TestCase
 {
@@ -54,13 +52,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectIdTe
         $this->handler = new TestHandler();
         $this->logger  = new Logger('Test', [$this->handler]);
 
-        $assertion = new Assertion();
-        $assertion->setAttributes([self::SUB_NAME => [self::SUB_VALUE]]);
-
-        $response = new Response();
-        $response->setAssertions([$assertion]);
-
-        $this->response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        $this->response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse(['assertion' => ['attributes' => [self::SUB_NAME => [self::SUB_VALUE]]]]);
     }
 
     public function testNoConfiguredScopesLeadsToNoVerification()
@@ -88,7 +80,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectIdTe
         $identityProvider->shibMdScopes = [$scope];
 
         // wipe the assertion attributes
-        $this->response->getAssertion()->setAttributes([]);
+        $this->response->setAttributes([]);
 
         $verifier = new EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectId($this->logger, false);
         $verifier->setResponse($this->response);
@@ -116,7 +108,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectIdTe
         $identityProvider->shibMdScopes = [$scope];
 
         // wipe the assertion attributes
-        $this->response->getAssertion()->setAttributes([self::SUB_NAME => ['NoAtSign']]);
+        $this->response->setAttributes([self::SUB_NAME => ['NoAtSign']]);
 
         $verifier = new EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectId($this->logger, false);
         $verifier->setResponse($this->response);
@@ -138,7 +130,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectIdTe
         $identityProvider->shibMdScopes = [$scope];
 
         $attributes = [self::SUB_NAME => ['something@' . self::SUB_SUFFIX, 'other@' . self::SUB_SUFFIX]];
-        $this->response->getAssertion()->setAttributes($attributes);
+        $this->response->setAttributes($attributes);
 
         $verifier = new EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectId($this->logger, false);
         $verifier->setResponse($this->response);

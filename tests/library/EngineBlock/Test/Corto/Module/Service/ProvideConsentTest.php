@@ -24,6 +24,7 @@ use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\InMemoryMetadataRepository;
 use OpenConext\EngineBlock\Request\CorrelationIdServiceInterface;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlock\Service\AuthenticationStateHelperInterface;
 use OpenConext\EngineBlock\Service\Consent\ConsentServiceInterface;
 use OpenConext\EngineBlock\Service\Dto\ProcessingStateStep;
@@ -32,11 +33,6 @@ use OpenConext\EngineBlock\Service\ProcessingStateHelperInterface;
 use OpenConext\EngineBlockBundle\Authentication\AuthenticationStateInterface;
 use OpenConext\EngineBlockBundle\Service\DiscoverySelectionService;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\NameID;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -140,7 +136,7 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
 
     public function testConsentIsSkippedWhenGloballyDisabled()
     {
-        $this->setCoin($this->proxyServerMock->getRepository()->fetchServiceProviderByEntityId('testSp'), 'isConsentRequired', false);
+        $this->setCoin($this->proxyServerMock->getRepository()->fetchServiceProviderByEntityId('https://sp.example.org/testSp'), 'isConsentRequired', false);
 
         $provideConsentService = $this->factoryService();
 
@@ -153,12 +149,12 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
 
     public function testConsentIsSkippedWhenDisabledPerSp()
     {
-        $idp = $this->proxyServerMock->getRepository()->fetchIdentityProviderByEntityId('testIdP');
+        $idp = $this->proxyServerMock->getRepository()->fetchIdentityProviderByEntityId('https://idp.example.org/testIdP');
 
         $idp->setConsentSettings(
             new ConsentSettings([
                 [
-                    'name' => 'testSp',
+                    'name' => 'https://sp.example.org/testSp',
                     'type' => 'no_consent',
                 ]
             ])
@@ -185,8 +181,8 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
         $proxyServerMock = Phake::partialMock('EngineBlock_Corto_ProxyServer', $twigMock);
 
         $proxyServerMock->setRepository(new InMemoryMetadataRepository(
-            array(new IdentityProvider('testIdP')),
-            array(new ServiceProvider('testSp'))
+            array(new IdentityProvider('https://idp.example.org/testIdP')),
+            array(new ServiceProvider('https://sp.example.org/testSp'))
         ));
 
         $bindingsModuleMock = $this->mockBindingsModule();
@@ -194,12 +190,7 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
 
         // Stub getReceivedRequestFromResponse so tests do not depend on DI-wired
         // AuthnRequestSessionRepository being populated during the test.
-        $spRequest = new AuthnRequest();
-        $spRequest->setId('SPREQUEST');
-        $issuer = new Issuer();
-        $issuer->setValue('testSp');
-        $spRequest->setIssuer($issuer);
-        $decoratedSpRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($spRequest);
+        $decoratedSpRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'SPREQUEST', 'issuer' => 'https://sp.example.org/testSp']);
 
         Phake::when($proxyServerMock)
             ->getReceivedRequestFromResponse(Phake::anyParameters())
@@ -221,16 +212,8 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
      */
     private function mockBindingsModule()
     {
-        $spRequest = new AuthnRequest();
-        $spRequest->setId('SPREQUEST');
-        $issuer = new Issuer();
-        $issuer->setValue('testSp');
-        $spRequest->setIssuer($issuer);
-        $spRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($spRequest);
-
-        $ebRequest = new AuthnRequest();
-        $ebRequest->setId('EBREQUEST');
-        $ebRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($ebRequest);
+        $spRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'SPREQUEST', 'issuer' => 'https://sp.example.org/testSp']);
+        $ebRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'EBREQUEST']);
 
         $authnRequest = new \Symfony\Component\HttpFoundation\Request();
         $authnRequest->setSession(new Session(new MockArraySessionStorage()));
@@ -240,24 +223,17 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
         $authnRequestRepository->store($ebRequest);
         $authnRequestRepository->link($ebRequest, $spRequest);
 
-        $assertion = new Assertion();
-        $assertion->setAttributes(array(
-            'urn:org:openconext:corto:internal:sp-entity-id' => array(
-                'testSp'
-            ),
-            'urn:mace:dir:attribute-def:cn' => array(
-                null
-            )
-        ));
-        $nameId = new NameID();
-        $nameId->setValue('nameid');
-        $assertion->setNameId($nameId);
-
-        $responseFixture = new Response();
-        $responseFixture->setInResponseTo('EBREQUEST');
-        $responseFixture->setAssertions(array($assertion));
-        $responseFixture = new EngineBlock_Saml2_ResponseAnnotationDecorator($responseFixture);
-        $responseFixture->setOriginalIssuer('testIdP');
+        $responseFixture = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse([
+            'inResponseTo' => 'EBREQUEST',
+            'assertion' => [
+                'nameId' => Saml2Value::nameId('nameid'),
+                'attributes' => [
+                    'urn:org:openconext:corto:internal:sp-entity-id' => ['https://sp.example.org/testSp'],
+                    'urn:mace:dir:attribute-def:cn' => [null],
+                ],
+            ],
+        ]);
+        $responseFixture->setOriginalIssuer('https://idp.example.org/testIdP');
 
         // Mock bindings module
         /** @var EngineBlock_Corto_Module_Bindings $bindingsModuleMock */
@@ -278,7 +254,7 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
         // Mock xml conversion
         $xmlFixture = array(
             'urn:org:openconext:corto:internal:sp-entity-id' => array(
-                'testSp'
+                'https://sp.example.org/testSp'
             ),
             'urn:mace:dir:attribute-def:cn' => array(
                 null
@@ -368,14 +344,7 @@ class EngineBlock_Test_Corto_Module_Service_ProvideConsentTest extends TestCase
 
     private function mockSspResponse()
     {
-        $sspResponse = new Response();
-        $sspResponse->setInResponseTo('EBREQUEST');
-        $issuer = new Issuer();
-        $issuer->setValue('testSp');
-        $sspResponse->setIssuer($issuer);
-        $sspResponse->setAssertions([]);
-
-        $sspResponse = new EngineBlock_Saml2_ResponseAnnotationDecorator($sspResponse);
+        $sspResponse = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse(['inResponseTo' => 'EBREQUEST', 'issuer' => 'https://sp.example.org/testSp', 'assertions' => []]);
 
         return $sspResponse;
     }

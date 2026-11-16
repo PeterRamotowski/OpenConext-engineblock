@@ -24,7 +24,7 @@ use OpenConext\EngineBlock\Metadata\RequestedAttribute;
 use OpenConext\EngineBlock\Metadata\X509\X509Certificate;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 class ServiceProviderStepup extends AbstractEntity
 {

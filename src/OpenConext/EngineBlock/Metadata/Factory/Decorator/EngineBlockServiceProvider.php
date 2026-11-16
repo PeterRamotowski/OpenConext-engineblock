@@ -24,7 +24,7 @@ use OpenConext\EngineBlock\Metadata\RequestedAttribute;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
 use Override;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 /**
  * This decoration is used to represent EngineBlock in it's SP role when EngineBlock is used as authentication

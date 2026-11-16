@@ -23,8 +23,6 @@ use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use OpenConext\EngineBlockBundle\Pdp\PdpClientInterface;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
 
 class EngineBlock_Test_Corto_Filter_Command_EnforcePolicyTest extends TestCase
 {
@@ -149,11 +147,7 @@ class EngineBlock_Test_Corto_Filter_Command_EnforcePolicyTest extends TestCase
 
     private function mockRequest(): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $assertion = new Assertion();
-        $request = new AuthnRequest();
-        $response = new SAML2\Response();
-        $response->setAssertions(array($assertion));
-        return new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($request);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
     }
 
     private function mockPdpClientWithException(Throwable $exception): void

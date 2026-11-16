@@ -17,7 +17,6 @@
  */
 
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest;
 use Symfony\Component\HttpFoundation\Exception\SessionNotFoundException;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -38,9 +37,7 @@ class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
 
     private function makeRequest(string $id): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $authnRequest = new AuthnRequest();
-        $authnRequest->setId($id);
-        return new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($authnRequest);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => $id]);
     }
 
     public function test_store_saves_request(): void
@@ -139,5 +136,39 @@ class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
         $repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($requestStack);
 
         $this->assertNull($repo->findLinkedRequestId('_req-A'));
+    }
+
+    public function test_stored_requests_and_links_survive_session_serialization(): void
+    {
+        $spRequest = $this->makeRequest('_sp-request-A');
+        $spRequest->setKeyId('20260101');
+        $this->repo->store($spRequest);
+        $this->repo->link($this->makeRequest('_idp-request-B'), $spRequest);
+
+        $this->session->replace(unserialize(serialize($this->session->all())));
+
+        $restored = $this->repo->findRequestById('_sp-request-A');
+        $this->assertNotSame($spRequest, $restored);
+        $this->assertSame('_sp-request-A', $restored->getId());
+        $this->assertSame('20260101', $restored->getKeyId());
+        $this->assertSame('_sp-request-A', $this->repo->findLinkedRequestId('_idp-request-B'));
+    }
+
+    public function test_request_stored_by_another_release_restarts_the_flow(): void
+    {
+        $class = EngineBlock_Saml2_AuthnRequestAnnotationDecorator::class;
+        $legacy = unserialize(sprintf('O:%d:"%s"%s', strlen($class), $class, substr(serialize(['keyId' => null]), 1)));
+        $this->session->set('SAMLRequest', ['_old' => $legacy]);
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->findRequestById('_old');
+    }
+
+    public function test_request_of_an_unknown_class_restarts_the_flow(): void
+    {
+        $this->session->set('SAMLRequest', ['_old' => unserialize('O:21:"SAML2_Removed_Message":0:{}')]);
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->findRequestById('_old');
     }
 }

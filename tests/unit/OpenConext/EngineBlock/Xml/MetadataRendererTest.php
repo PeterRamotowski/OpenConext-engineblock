@@ -48,7 +48,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RobRichards\XMLSecLibs\XMLSecEnc;
 use RobRichards\XMLSecLibs\XMLSecurityDSig;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use SAML2\DOMDocumentFactory;
 use SAML2\XML\md\EntitiesDescriptor;
 use SAML2\XML\md\EntityDescriptor;

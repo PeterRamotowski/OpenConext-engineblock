@@ -25,7 +25,7 @@ use OpenConext\EngineBlock\Metadata\Service;
 use OpenConext\EngineBlock\Metadata\X509\X509Certificate;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ProxiedIdentityProvider extends AbstractEntity

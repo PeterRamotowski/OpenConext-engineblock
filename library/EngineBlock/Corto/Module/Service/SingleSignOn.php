@@ -24,10 +24,12 @@ use OpenConext\EngineBlock\Service\Wayf\RememberedIdpCookie;
 use OpenConext\EngineBlock\Service\Wayf\WayfIdp;
 use OpenConext\EngineBlockBundle\Bridge\DiContainerRuntime;
 use OpenConext\EngineBlockBundle\Service\DiscoverySelectionService;
-use SAML2\AuthnRequest;
-use SAML2\Constants;
-use SAML2\Response;
-use SAML2\XML\saml\Issuer;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
+use SimpleSAML\XMLSchema\Type\IDValue;
+use SimpleSAML\XMLSchema\Type\UnsignedShortValue;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Mime\Address;
 use Twig\Environment;
@@ -87,12 +89,12 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
 
         $request = $this->_getRequest($serviceName);
 
-        $log->info(sprintf("Fetching service provider matching request issuer '%s'", $request->getIssuer()->getValue()));
+        $log->info(sprintf("Fetching service provider matching request issuer '%s'", $request->getIssuerValue()));
 
         if ($serviceName === 'debugSingleSignOnService') {
             $sp = $this->getEngineSpRole($this->_server);
         } else {
-            $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+            $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
         }
 
         // When dealing with an SP that acts as a trusted proxy, we should perform SSO on the proxying SP and not the
@@ -301,12 +303,12 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
             $logMessage = sprintf(
                 "Binding received %s from '%s'",
                 $request->wasSigned() ? 'signed SAML request' : 'unsigned SAML request',
-                $request->getIssuer()->getValue()
+                $request->getIssuerValue()
             );
         }
 
         // For lack of a better summary, add an equivalent XML representation of the received request to the log message
-        $requestXml = $request->toUnsignedXML()->ownerDocument->saveXML();
+        $requestXml = $request->toXml();
         $logger->info($logMessage, array('saml_request' => $requestXml));
 
         return $request;
@@ -321,7 +323,6 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
         ServiceProvider $remoteEntity
     ) {
-        /** @var AuthnRequest $request */
         // show error when acl is given without binding or vice versa
         $acsUrl = $request->getAssertionConsumerServiceURL();
         $acsIndex = $request->getAssertionConsumerServiceIndex();
@@ -370,29 +371,28 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
         // Requested relay state
         $relayState  = !empty($_GET['RelayState'])   ? $_GET['RelayState']  : null;
 
-        $sspRequest = new AuthnRequest();
-        $sspRequest->setId($this->_server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST));
-        $issuer = new Issuer();
-        $issuer->setValue($entityId);
-        $sspRequest->setIssuer($issuer);
-        $sspRequest->setRelayState($relayState);
-
-        if ($acsLocation) {
-            $sspRequest->setAssertionConsumerServiceURL($acsLocation);
-            $sspRequest->setProtocolBinding($binding);
+        try {
+            $sspRequest = new AuthnRequest(
+                id: IDValue::fromString($this->_server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST)),
+                issueInstant: Saml2Value::dateTime(time()),
+                assertionConsumerServiceURL: $acsLocation ? SAMLAnyURIValue::fromString($acsLocation) : null,
+                protocolBinding: $acsLocation && $binding ? SAMLAnyURIValue::fromString($binding) : null,
+                assertionConsumerServiceIndex: $acsIndex ? UnsignedShortValue::fromString((string) $acsIndex) : null,
+                issuer: $entityId === null ? null : Saml2Value::issuer($entityId),
+                // Set for logging purposes only
+                destination: $this->_absoluteDestination($destination),
+            );
+        } catch (\Throwable $e) {
+            throw new EngineBlock_Corto_Exception_InvalidAcsLocation(
+                'Unsolicited sign-on service called with invalid parameters: ' . $e->getMessage(),
+                EngineBlock_Exception::CODE_NOTICE,
+                $e instanceof Exception ? $e : null
+            );
         }
 
-        if ($acsIndex) {
-            $sspRequest->setAssertionConsumerServiceIndex($acsIndex);
-        }
-
-        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($sspRequest);
+        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($sspRequest, $relayState);
         if ($keyid = $this->_server->getKeyId()) {
             $request->setKeyId($keyid);
-        }
-        if ($destination) {
-            // Set for logging purposes, note that only the REQUEST_URI (no hostname + protocol)
-            $sspRequest->setDestination($destination);
         }
 
         $request->setUnsolicited();
@@ -401,18 +401,37 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
     }
 
     /**
+     * A v7 Destination must be an absolute URI; the server variables only hold the path.
+     */
+    private function _absoluteDestination(?string $destination): ?SAMLAnyURIValue
+    {
+        if ($destination === null || $destination === '') {
+            return null;
+        }
+
+        if (!preg_match('~^[a-z][a-z0-9+.-]*://~i', $destination)) {
+            $httpRequest = EngineBlock_ApplicationSingleton::getInstance()->getHttpRequest();
+            $destination = $httpRequest->getProtocol() . '://' . $httpRequest->getHostName() . $destination;
+        }
+
+        try {
+            return SAMLAnyURIValue::fromString($destination);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * @return EngineBlock_Saml2_AuthnRequestAnnotationDecorator
      */
     protected function _createDebugRequest()
     {
-        $sspRequest = new AuthnRequest();
-        $sspRequest->setId($this->_server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST));
-        $issuer = new Issuer();
-        $issuer->setValue($this->_server->getUrl('spMetadataService'));
-        $sspRequest->setIssuer($issuer);
-        $sspRequest->setForceAuthn(true);
-
-        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($sspRequest);
+        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest(
+            id: IDValue::fromString($this->_server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST)),
+            issueInstant: Saml2Value::dateTime(time()),
+            issuer: Saml2Value::issuer($this->_server->getUrl('spMetadataService')),
+        ));
+        $request->setForceAuthn(true);
         $request->setDebug();
 
         return $request;
@@ -423,7 +442,6 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
     ) {
         $log = $this->_server->getLogger();
 
-        /** @var AuthnRequest $request */
         $scopedIdPs = $request->getIDPList();
         $presetIdP  = $this->_server->getConfig('Idp');
 
@@ -455,7 +473,6 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
         ServiceProvider $sp,
         array $scopedIdps
     ) {
-        /** @var AuthnRequest $request */
         if ($request->getForceAuthn()) {
             return $scopedIdps;
         }
@@ -638,13 +655,13 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
         );
     }
     /**
-     * @param Response|EngineBlock_Saml2_ResponseAnnotationDecorator $response
+     * @param EngineBlock_Saml2_ResponseAnnotationDecorator $response
      */
     protected function _sendDebugMail(EngineBlock_Saml2_ResponseAnnotationDecorator $response)
     {
-        $identityProvider = $this->_server->getRepository()->fetchIdentityProviderByEntityId($response->getIssuer()->getValue());
+        $identityProvider = $this->_server->getRepository()->fetchIdentityProviderByEntityId($response->getIssuerValue());
 
-        $attributes = $response->getAssertion()->getAttributes();
+        $attributes = $response->getAttributes();
         $normalizer = new EngineBlock_Attributes_Normalizer($attributes);
         $attributes = $normalizer->normalize();
 
@@ -699,13 +716,13 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
             $showMailFlashMessage = true;
         }
 
-        /** @var Response|EngineBlock_Saml2_ResponseAnnotationDecorator $response */
+        /** @var EngineBlock_Saml2_ResponseAnnotationDecorator $response */
         $response = $_SESSION['debugIdpResponse'];
 
         $log = $this->_server->getLogger();
         $log->info(
             'Received response to IdP debug page',
-            ['saml_response' => $response->toUnsignedXML()->ownerDocument->saveXML()]
+            ['saml_response' => $response->toXml()]
         );
         $application = EngineBlock_ApplicationSingleton::getInstance();
         $application->flushLog('IdP debug page; activating all logs');
@@ -714,7 +731,7 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
             $this->_sendDebugMail($response);
         }
 
-        $attributes = $response->getAssertion()->getAttributes();
+        $attributes = $response->getAttributes();
         $normalizer = new EngineBlock_Attributes_Normalizer($attributes);
         $attributes = $normalizer->normalize();
 
@@ -726,7 +743,7 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
             '@theme/Authentication/View/Proxy/debug-idp-response.html.twig',
             [
                 'wide' => true,
-                'idp' => $this->_server->getRepository()->fetchIdentityProviderByEntityId($response->getIssuer()->getValue()),
+                'idp' => $this->_server->getRepository()->fetchIdentityProviderByEntityId($response->getIssuerValue()),
                 'attributes' => $attributes,
                 'validationResult' => $validationResult,
                 'showMailFlashMessage' => $showMailFlashMessage,

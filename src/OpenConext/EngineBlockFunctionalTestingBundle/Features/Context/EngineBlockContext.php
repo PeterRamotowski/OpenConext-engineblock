@@ -35,11 +35,8 @@ use OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\ServiceRegistryFixtur
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\EntityRegistry;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
-use RobRichards\XMLSecLibs\XMLSecEnc;
-use RobRichards\XMLSecLibs\XMLSecurityDSig;
 use RuntimeException;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\BrowserKit\Cookie;
 
 /**
@@ -1034,7 +1031,8 @@ class EngineBlockContext extends AbstractSubContext
 
         // Convert response to  DOMDocument
         $samlResponseXml = base64_decode($samlResponse);
-        $xmlDom = DOMDocumentFactory::fromString($samlResponseXml);
+        $xmlDom = new DOMDocument();
+        $xmlDom->loadXML($samlResponseXml);
 
         // Init XPath and register namespaces
         $xpath = new DOMXPath($xmlDom);
@@ -1042,8 +1040,8 @@ class EngineBlockContext extends AbstractSubContext
         $xpath->registerNamespace('saml_protocol', Constants::NS_SAMLP);
         $xpath->registerNamespace('saml_assertion', Constants::NS_SAML);
         $xpath->registerNamespace('saml_metadata', Constants::NS_MD);
-        $xpath->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpath->registerNamespace('xenc', XMLSecEnc::XMLENCNS);
+        $xpath->registerNamespace('ds', Constants::NS_XDSIG);
+        $xpath->registerNamespace('xenc', Constants::NS_XENC);
 
         // Strip response/signature
         $nodes = $xpath->query("/saml_protocol:Response/ds:Signature");

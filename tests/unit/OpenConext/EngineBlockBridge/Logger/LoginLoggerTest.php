@@ -26,10 +26,7 @@ use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response as SAMLResponse;
-use SAML2\XML\saml\NameID;
+use EngineBlock_Test_Saml2_MessageFixtures;
 
 class LoginLoggerTest extends TestCase
 {
@@ -131,22 +128,16 @@ class LoginLoggerTest extends TestCase
 
     private function createResponse(string $nameId = ''): EngineBlock_Saml2_ResponseAnnotationDecorator
     {
-        $assertion = new Assertion();
-        $assertion->setAuthnContextClassRef('urn:oasis:names:tc:SAML:2.0:ac:classes:Password');
-        if ($nameId !== '') {
-            $nameIdObj = new NameID();
-            $nameIdObj->setValue($nameId);
-            $assertion->setNameId($nameIdObj);
-        }
-
-        $samlResponse = new SAMLResponse();
-        $samlResponse->setAssertions([$assertion]);
-
-        return new EngineBlock_Saml2_ResponseAnnotationDecorator($samlResponse);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse([
+            'assertion' => [
+                'nameId' => $nameId === '' ? null : $nameId,
+                'classRef' => 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password',
+            ],
+        ]);
     }
 
     private function createRequest(): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        return new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest());
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
     }
 }

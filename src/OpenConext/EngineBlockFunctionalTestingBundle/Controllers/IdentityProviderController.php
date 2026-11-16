@@ -18,15 +18,13 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Controllers;
 
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\EntityRegistry;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
-use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Compat\Container;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\HttpBinding;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\ResponseFactory;
 use RuntimeException;
-use SAML2\AuthnRequest;
-use SAML2\HTTPPost;
-use SAML2\HTTPRedirect;
-use SAML2\Utils;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -61,7 +59,7 @@ class IdentityProviderController extends AbstractController
         $entityDescriptor = $this->mockIdpRegistry->get($idpName)->getEntityDescriptor();
 
         return new Response(
-            $entityDescriptor->toXML()->ownerDocument->saveXML(),
+            Saml2Value::toXmlString($entityDescriptor),
             200,
             ['Content-Type' => 'application/xml']
         );
@@ -75,53 +73,47 @@ class IdentityProviderController extends AbstractController
      */
     public function singleSignOnAction(Request $request, $idpName)
     {
-        if ($request->isMethod('GET')) {
-            $redirectBinding = new HTTPRedirect();
-            $message = $redirectBinding->receive();
-        } elseif ($request->isMethod('POST')) {
-            $postBinding = new HTTPPost();
-            $message = $postBinding->receive();
-        } else {
-            throw new RuntimeException('Unsupported HTTP method');
+        $message = HttpBinding::receive($request);
+        if ($message['parameter'] !== HttpBinding::PARAMETER_REQUEST) {
+            throw new RuntimeException(sprintf('Unknown message type: "%s"', $message['parameter']));
         }
 
-        if (!$message instanceof AuthnRequest) {
-            throw new RuntimeException(sprintf('Unknown message type: "%s"', get_class($message)));
+        $element = Saml2Value::documentElement($message['xml']);
+        if ($element->localName !== 'AuthnRequest') {
+            throw new RuntimeException(sprintf('Unknown message type: "%s"', $element->localName));
         }
-        $authnRequest = $message;
+        $authnRequest = AuthnRequest::fromXML($element);
 
         /** @var MockIdentityProvider $mockIdp */
         $mockIdp = $this->mockIdpRegistry->get($idpName);
 
-        /** @var ResponseFactory $responseFactory */
         $response = $this->responseFactory->createForEntityWithRequest($mockIdp, $authnRequest);
 
         $destination = ($authnRequest->getAssertionConsumerServiceURL() ?
-                $authnRequest->getAssertionConsumerServiceURL() :
+                $authnRequest->getAssertionConsumerServiceURL()->getValue() :
                 $response->getDestination());
 
         /* set the destination element of the response to the ACS URL */
         $response->setDestination($destination);
 
         if ($mockIdp->mustUseHttpRedirect()) {
-            $redirect = new HTTPRedirect();
-            $redirect->setDestination($destination);
-            $url = $redirect->getRedirectURL($response);
+            // Like saml2 4.x: the (unsigned) Response is sent with a query signature when responses must be signed
+            $url = HttpBinding::redirectUrl(
+                $destination,
+                HttpBinding::PARAMETER_RESPONSE,
+                $response->toXml(false),
+                null,
+                $response->getResponseSigner()
+            );
             return new RedirectResponse($url);
         }
 
-        /** @var Container $container */
-        $container = Utils::getContainer();
-        $authnRequestXml = $container->getLastDebugMessageOfType(Container::DEBUG_TYPE_IN);
-        $responseXml = $response->toXml();
-
-        $container->postRedirect(
+        return HttpBinding::postForm(
             $destination,
             [
-                'authnRequestXml'=> htmlentities($authnRequestXml),
-                'SAMLResponse' => base64_encode($responseXml),
+                'authnRequestXml' => htmlentities($message['xml']),
+                'SAMLResponse' => base64_encode($response->toXml()),
             ]
         );
-        return $container->getPostResponse();
     }
 }

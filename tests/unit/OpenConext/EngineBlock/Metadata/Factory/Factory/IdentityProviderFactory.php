@@ -29,7 +29,7 @@ use OpenConext\EngineBlock\Metadata\Organization;
 use OpenConext\EngineBlock\Metadata\Service;
 use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class IdentityProviderFactory extends AbstractEntity

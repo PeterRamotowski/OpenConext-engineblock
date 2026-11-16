@@ -40,7 +40,7 @@ use OpenConext\EngineBlock\Metadata\StepupConnections;
 use OpenConext\EngineBlock\Metadata\X509\X509CertificateFactory;
 use OpenConext\EngineBlock\Metadata\X509\X509CertificateLazyProxy;
 use ReflectionClass;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use function array_key_exists;
 
 /**

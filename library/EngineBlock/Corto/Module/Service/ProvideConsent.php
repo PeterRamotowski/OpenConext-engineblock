@@ -25,7 +25,8 @@ use OpenConext\EngineBlock\Service\Consent\ConsentServiceInterface;
 use OpenConext\EngineBlock\Service\ProcessingStateHelperInterface;
 use OpenConext\EngineBlockBundle\Service\DiscoverySelectionService;
 use Psr\Log\LogLevel;
-use SAML2\Constants;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\HttpFoundation\Request;
 use Twig\Environment;
 
@@ -116,7 +117,7 @@ class EngineBlock_Corto_Module_Service_ProvideConsent
         );
 
         $request = $receivedRequest;
-        $serviceProvider = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
         $spMetadataChain = EngineBlock_SamlHelper::getSpRequesterChain(
             $serviceProvider,
             $request,
@@ -142,7 +143,7 @@ class EngineBlock_Corto_Module_Service_ProvideConsent
         // that proxy.
         $serviceProviderMetadata = $spMetadataChain[0];
 
-        $attributes = $response->getAssertion()->getAttributes();
+        $attributes = $response->getAttributes();
         $consentRepository = $this->_consentFactory->create($this->_server, $response, $attributes);
 
         $authenticationState = $this->_authenticationStateHelper->getAuthenticationState();
@@ -219,10 +220,10 @@ class EngineBlock_Corto_Module_Service_ProvideConsent
         // Create a local copy of the NameID that is set on the response. We do not yet want to update the actual NameID
         // in the $response yet as this will cause side effects when saving the consent entry. The 'hashed user id'
         // will not be consistent.
-        $nameId = clone $response->getNameId();
+        $nameId = $response->getNameId();
 
         if ($isPersistent && !$amPriorToConsent) {
-            $collabPersonIdValue = $nameId->getValue();
+            $collabPersonIdValue = $nameId->getContent()->getValue();
             // Load the persistent name id for this combination of SP/Identifier and update the local copy of the nameId
             // to ensure the correct identifier is shown on the consent screen.
             $resolver = new EngineBlock_Saml2_NameIdResolver($this->logger);
@@ -239,7 +240,12 @@ class EngineBlock_Corto_Module_Service_ProvideConsent
         // name id copy that is used to render the correct identifier on the consent page. If AM was already performed,
         // use the nameIdFormat from the nameId, and do not overwrite it with the SP's preferred format.
         if (!$amPriorToConsent) {
-            $nameId->setFormat($serviceProviderMetadata->nameIdFormat);
+            $nameId = Saml2Value::nameId(
+                $nameId->getContent()->getValue(),
+                $serviceProviderMetadata->nameIdFormat,
+                $nameId->getNameQualifier()?->getValue(),
+                $nameId->getSPNameQualifier()?->getValue()
+            );
         }
 
         $html = $this->twig->render(

@@ -33,6 +33,8 @@ framework:
         # NULL means that Symfony uses PHP default session mechanism
         handler_id: null
         storage_factory_id: session.storage.factory.native
+        # D7: use a fresh cookie name for every cutover and rollback, see docs/session_cutover.md
+        name: '%session_cookie_name%'
         cookie_secure: true
         cookie_samesite: 'none'
 

@@ -17,9 +17,11 @@
  */
 
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
-use SAML2\AuthnRequest;
-use SAML2\Constants;
-use SAML2\XML\saml\Issuer;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
+use SimpleSAML\XMLSchema\Type\IDValue;
 
 class EngineBlock_Saml2_AuthnRequestFactory
 {
@@ -49,43 +51,39 @@ class EngineBlock_Saml2_AuthnRequestFactory
             unset($nameIdPolicy['AllowCreate']);
         }
 
-        /** @var AuthnRequest $originalRequest */
-
-        $sspRequest = new AuthnRequest();
-        $sspRequest->setId($server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST));
-        $sspRequest->setIssueInstant(time());
-        $sspRequest->setDestination(isset($idpMetadata->singleSignOnServices[0]) ? $idpMetadata->singleSignOnServices[0]->location : null);
-        $sspRequest->setForceAuthn($originalRequest->getForceAuthn());
-        $sspRequest->setIsPassive($originalRequest->getIsPassive());
-        $sspRequest->setAssertionConsumerServiceURL($server->getUrl($acsServiceName));
-        $sspRequest->setProtocolBinding(Constants::BINDING_HTTP_POST);
-        $issuer = new Issuer();
-        $issuer->setValue($server->getUrl($issuerServiceName));
-        $sspRequest->setIssuer($issuer);
-        $sspRequest->setNameIdPolicy($nameIdPolicy);
+        $destination = isset($idpMetadata->singleSignOnServices[0]) ? $idpMetadata->singleSignOnServices[0]->location : null;
+        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest(
+            id: IDValue::fromString($server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST)),
+            issueInstant: Saml2Value::dateTime(time()),
+            assertionConsumerServiceURL: SAMLAnyURIValue::fromString($server->getUrl($acsServiceName)),
+            protocolBinding: SAMLAnyURIValue::fromString(Constants::BINDING_HTTP_POST),
+            issuer: Saml2Value::issuer($server->getUrl($issuerServiceName)),
+            destination: $destination === null || $destination === '' ? null : SAMLAnyURIValue::fromString($destination),
+        ));
+        $request->setForceAuthn($originalRequest->getForceAuthn());
+        $request->setIsPassive($originalRequest->getIsPassive());
+        $request->setNameIdPolicy($nameIdPolicy);
 
         if (empty($idpMetadata->getCoins()->disableScoping())) {
             // Copy over the Idps that are allowed to answer this request.
-            $sspRequest->setIDPList($originalRequest->getIDPList());
+            $request->setIDPList($originalRequest->getIDPList());
 
             // Proxy Count
-            $sspRequest->setProxyCount(
+            $request->setProxyCount(
                 $originalRequest->getProxyCount() ?
                     $originalRequest->getProxyCount() :
-                    $server->getConfig('max_proxies', 10)
+                    (int) $server->getConfig('max_proxies', 10)
             );
 
             // Add the SP to the requesterIds
             $requesterIds = $originalRequest->getRequesterID();
-            $issuer = $originalRequest->getIssuer() ? $originalRequest->getIssuer()->getValue() : '';
-            $requesterIds[] = $issuer;
+            $requesterIds[] = ($originalRequest->getIssuerValue() ?? '');
 
             // Add the SP as the requester
-            $sspRequest->setRequesterID($requesterIds);
+            $request->setRequesterID($requesterIds);
         }
 
         // Use the default binding even if more exist
-        $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($sspRequest);
         $request->setDeliverByBinding(isset($idpMetadata->singleSignOnServices[0]) ? $idpMetadata->singleSignOnServices[0]->binding : null);
 
         return $request;

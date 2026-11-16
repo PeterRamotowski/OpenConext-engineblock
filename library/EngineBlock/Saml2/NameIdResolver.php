@@ -20,9 +20,9 @@ use Doctrine\DBAL\Statement;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Ramsey\Uuid\Uuid;
-use SAML2\AuthnRequest;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
 
 class EngineBlock_Saml2_NameIdResolver
 {
@@ -87,25 +87,19 @@ class EngineBlock_Saml2_NameIdResolver
         $requireUnspecified = ($nameIdFormat === Constants::NAMEID_UNSPECIFIED);
         if ($requireUnspecified) {
             $this->logger->info('Resolving an unspecified nameId');
-            $nameId = new NameID();
-            $nameId->setFormat($nameIdFormat);
-            $nameId->setValue($response->getIntendedNameId());
+            $nameId = Saml2Value::nameId((string) $response->getIntendedNameId(), $nameIdFormat);
             return $nameId;
         }
 
         $requireTransient = ($nameIdFormat === Constants::NAMEID_TRANSIENT);
         if ($requireTransient) {
             $this->logger->info('Resolving a transient nameId');
-            $nameId = new NameID();
-            $nameId->setFormat($nameIdFormat);
-            $nameId->setValue($this->_getTransientNameId($destinationMetadata->entityId, $response->getOriginalIssuer()));
+            $nameId = Saml2Value::nameId((string) $this->_getTransientNameId($destinationMetadata->entityId, $response->getOriginalIssuer()), $nameIdFormat);
             return $nameId;
         }
 
         $this->logger->info('Resolving a persistent nameId');
-        $nameId = new NameID();
-        $nameId->setFormat($nameIdFormat);
-        $nameId->setValue($this->_getPersistentNameId($collabPersonId, $destinationMetadata->entityId));
+        $nameId = Saml2Value::nameId((string) $this->_getPersistentNameId($collabPersonId, $destinationMetadata->entityId), $nameIdFormat);
         return $nameId;
     }
 
@@ -157,7 +151,6 @@ class EngineBlock_Saml2_NameIdResolver
         }
 
         // If the SP requests a specific NameIDFormat in their AuthnRequest
-        /** @var AuthnRequest $request */
         $nameIdPolicy = $request->getNameIdPolicy();
         if (!empty($nameIdPolicy['Format'])) {
             $mayUseRequestedNameIdFormat = true;

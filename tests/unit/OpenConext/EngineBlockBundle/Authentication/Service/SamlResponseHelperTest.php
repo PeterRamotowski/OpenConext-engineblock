@@ -28,8 +28,8 @@ use OpenConext\EngineBlockBundle\Authentication\Service\SamlResponseHelper;
 use OpenConext\EngineBlockBundle\Exception\RuntimeException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SAML2\Constants;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Constants;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use SimpleXMLElement;
 
 class SamlResponseHelperTest extends TestCase
@@ -66,8 +66,7 @@ class SamlResponseHelperTest extends TestCase
             ->with($spEntityId)
             ->andReturn($mockSp);
 
-        $issuer = new Issuer();
-        $issuer->setValue($spEntityId);
+        $issuer = Saml2Value::issuer($spEntityId);
         $originalResponse = m::mock(EngineBlock_Saml2_ResponseAnnotationDecorator::class);
 
         $originalResponse
@@ -77,7 +76,7 @@ class SamlResponseHelperTest extends TestCase
         $originalResponse
             ->shouldReceive('getStatus')
             ->andReturn(
-                ['Code' => 'testCode', 'SubCode' => 'testSubCode']
+                ['Code' => 'urn:oasis:names:tc:SAML:2.0:status:Responder', 'SubCode' => 'urn:oasis:names:tc:SAML:2.0:status:AuthnFailed']
             );
 
         $response = $this->helper->createAuthnFailedResponse(
@@ -91,6 +90,8 @@ class SamlResponseHelperTest extends TestCase
         // Parse the SAML response into a SimpleXMLElement
         $response = base64_decode($response);
         $responseXml = new SimpleXMLElement($response);
+        $responseXml->registerXPathNamespace('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+        $responseXml->registerXPathNamespace('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
 
         /**
          * Test if the issuer was set correctly
@@ -107,7 +108,7 @@ class SamlResponseHelperTest extends TestCase
          */
         $issuerResponse = $responseXml->xpath('/samlp:Response/saml:Issuer');
         $responseIssuer = array_pop($issuerResponse);
-        self::assertEquals($responseIssuer, $issuer->getValue());
+        self::assertEquals($responseIssuer, $spEntityId);
 
         /**
          * Test if the codes are correctly copied from the original saml failed response
@@ -117,8 +118,8 @@ class SamlResponseHelperTest extends TestCase
         $innerStatusCode = $responseXml->xpath('/samlp:Response/samlp:Status/samlp:StatusCode/samlp:StatusCode');
         $responseCode = array_pop($statusCode);
         $responseSubCode = array_pop($innerStatusCode);
-        self::assertEquals($responseCode['Value'], 'testCode');
-        self::assertEquals($responseSubCode['Value'], 'testSubCode');
+        self::assertEquals($responseCode['Value'], 'urn:oasis:names:tc:SAML:2.0:status:Responder');
+        self::assertEquals($responseSubCode['Value'], 'urn:oasis:names:tc:SAML:2.0:status:AuthnFailed');
     }
 
     public function test_create_authn_failed_response_transparent()
@@ -140,8 +141,7 @@ class SamlResponseHelperTest extends TestCase
             ->with($spEntityId)
             ->andReturn($mockSp);
 
-        $issuer = new Issuer();
-        $issuer->setValue($spEntityId);
+        $issuer = Saml2Value::issuer($spEntityId);
 
         $originalResponse = m::mock(EngineBlock_Saml2_ResponseAnnotationDecorator::class);
 
@@ -155,7 +155,7 @@ class SamlResponseHelperTest extends TestCase
         $originalResponse
             ->shouldReceive('getStatus')
             ->andReturn(
-                ['Code' => 'testCode', 'SubCode' => 'testSubCode']
+                ['Code' => 'urn:oasis:names:tc:SAML:2.0:status:Responder', 'SubCode' => 'urn:oasis:names:tc:SAML:2.0:status:AuthnFailed']
             );
 
         $response = $this->helper->createAuthnFailedResponse(
@@ -169,6 +169,8 @@ class SamlResponseHelperTest extends TestCase
         // Parse the SAML response into a SimpleXMLElement
         $response = base64_decode($response);
         $responseXml = new SimpleXMLElement($response);
+        $responseXml->registerXPathNamespace('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+        $responseXml->registerXPathNamespace('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
 
         /**
          * Test if the issuer was set correctly
@@ -195,8 +197,8 @@ class SamlResponseHelperTest extends TestCase
         $innerStatusResponseCode = $responseXml->xpath('/samlp:Response/samlp:Status/samlp:StatusCode/samlp:StatusCode');
         $responseCode = array_pop($statusResponseCode);
         $responseSubCode = array_pop($innerStatusResponseCode);
-        self::assertEquals($responseCode['Value'], 'testCode');
-        self::assertEquals($responseSubCode['Value'], 'testSubCode');
+        self::assertEquals($responseCode['Value'], 'urn:oasis:names:tc:SAML:2.0:status:Responder');
+        self::assertEquals($responseSubCode['Value'], 'urn:oasis:names:tc:SAML:2.0:status:AuthnFailed');
     }
 
     #[DataProvider('provideAcuData')]

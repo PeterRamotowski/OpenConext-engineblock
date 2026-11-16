@@ -53,7 +53,7 @@ class EngineBlock_Corto_Filter_Command_ValidateAuthnContextClassRef extends Engi
             return;
         }
 
-        $authnContextClassRef = $this->_response->getAssertion()->getAuthnContextClassRef();
+        $authnContextClassRef = $this->_response->getAuthnContextClassRef();
 
         if (!$this->isAuthnContextClassRefAllowed($authnContextClassRef, $this->authnContextClassRefBlacklistPattern)) {
             throw new EngineBlock_Corto_Exception_AuthnContextClassRefBlacklisted(

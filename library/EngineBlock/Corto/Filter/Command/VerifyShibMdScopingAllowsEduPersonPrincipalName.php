@@ -92,7 +92,7 @@ class EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsEduPersonPrincip
      */
     private function resolveEduPersonPrincipalName()
     {
-        $attributes = $this->_response->getAssertion()->getAttributes();
+        $attributes = $this->_response->getAttributes();
 
         if (isset($attributes[self::EDU_PERSON_PRINCIPAL_NAME_URN_MACE])) {
             return reset($attributes[self::EDU_PERSON_PRINCIPAL_NAME_URN_MACE]);

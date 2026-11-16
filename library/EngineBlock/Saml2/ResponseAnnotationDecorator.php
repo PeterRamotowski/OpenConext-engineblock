@@ -16,19 +16,22 @@
  * limitations under the License.
  */
 
-use SAML2\Assertion;
-use SAML2\DOMDocumentFactory;
-use SAML2\EncryptedAssertion;
-use SAML2\Response;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\AttributeMapper;
+use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\Type\SAMLStringValue;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\AuthnContextClassRef;
+use SimpleSAML\SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\samlp\AbstractMessage;
+use SimpleSAML\SAML2\XML\samlp\Response;
+use SimpleSAML\SAML2\XML\samlp\Status;
+use SimpleSAML\SAML2\XML\samlp\StatusCode;
+use SimpleSAML\SAML2\XML\samlp\StatusMessage;
+use SimpleSAML\XMLSchema\Type\NCNameValue;
 
-/**
- * Annotate the response with our own metadata
- *
- * @method void setStatus(array)
- * @method void setAssertions(array)
- * @method void setIssuer(string)
- */
 class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_MessageAnnotationDecorator
 {
     /**
@@ -48,7 +51,7 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
     protected $originalIssuer;
 
     /**
-     * @var null|NameID
+     * @var NameID|null
      */
     protected $originalNameId;
 
@@ -58,7 +61,7 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
     protected $originalBinding;
 
     /**
-     * @var string
+     * @var EngineBlock_Saml2_ResponseAnnotationDecorator
      */
     protected $originalResponse;
 
@@ -68,7 +71,7 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
     protected $collabPersonId;
 
     /**
-     * @var NameID
+     * @var NameID|null
      */
     protected $customNameId;
 
@@ -78,30 +81,35 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
     protected $intendedNameId;
 
     /**
-     * @var Loa[]
+     * @var array
      */
     protected $pdpRequestedLoas = [];
 
+    /**
+     * @var bool
+     */
     protected $isTransparentErrorResponse = false;
-
-    /**
-     * @var string Temporary storage for serialized XML
-     */
-    private ?string $_serializableSspMessageXml = null;
-
-    /**
-     * @var string|null Persisted RelayState while serialized (not part of the AuthnRequest XML itself)
-     */
-    private ?string $_serializableRelayState = null;
 
     protected string $SramInterruptNonce = "";
 
     /**
-     * @param Response $response
+     * xsi:types to use when (re)writing the attributes, see AttributeMapper::toStatement().
      */
-    function __construct(Response $response)
+    private array $attributeValueTypes = [];
+
+    public function __construct(Response $response, ?string $relayState = null)
     {
         $this->sspMessage = $response;
+        $this->relayState = $relayState;
+    }
+
+    /**
+     * @return Response
+     */
+    #[Override]
+    public function getSspMessage()
+    {
+        return parent::getSspMessage();
     }
 
     /**
@@ -110,54 +118,223 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
      */
     public function getAssertion()
     {
-        $assertions = $this->sspMessage->getAssertions();
+        $assertions = $this->getSspMessage()->getAssertions();
         if (empty($assertions)) {
             throw new RuntimeException('No assertions in response?');
+        }
+        if (!$assertions[0] instanceof Assertion) {
+            throw new RuntimeException('Response contains an encrypted assertion that has not been decrypted');
         }
         return $assertions[0];
     }
 
-    /**
-     * @return NameID|null The name identifier of the assertion.
-     */
-    public function getNameId()
+    public function hasAssertion(): bool
     {
-        $assertion = $this->getAssertion();
-        return $assertion->getNameId();
+        $assertions = $this->getSspMessage()->getAssertions();
+        return isset($assertions[0]) && $assertions[0] instanceof Assertion;
     }
 
+    public function setAssertion(Assertion $assertion): static
+    {
+        $assertions = $this->getSspMessage()->getAssertions();
+        $assertions[0] = $assertion;
+        $this->rebuild(['assertions' => array_values($assertions)]);
+        return $this;
+    }
+
+    /**
+     * @return array<Assertion|\SimpleSAML\SAML2\XML\saml\EncryptedAssertion>
+     */
+    public function getAssertions(): array
+    {
+        return $this->getSspMessage()->getAssertions();
+    }
+
+    public function setAssertions(array $assertions): static
+    {
+        $this->rebuild(['assertions' => array_values($assertions)]);
+        return $this;
+    }
+
+    public function getNameId(): ?NameID
+    {
+        $identifier = $this->getAssertion()->getSubject()?->getIdentifier();
+        return $identifier instanceof NameID ? $identifier : null;
+    }
+
+    public function setNameId(?NameID $nameId): static
+    {
+        return $this->setAssertion(MessageRebuilder::assertionWithSubjectIdentifier($this->getAssertion(), $nameId));
+    }
+
+    /**
+     * @return string
+     */
     public function getNameIdValue()
     {
         $nameId = $this->getNameId();
         if (!$nameId) {
             throw new RuntimeException('No NameID in Assertion?');
         }
-        return $nameId->getValue();
+        return $nameId->getContent()->getValue();
     }
 
+    /**
+     * @return string
+     */
     public function getNameIdFormat()
     {
-        $nameId = $this->getNameId();
-        if (!$nameId->getFormat()) {
+        $format = $this->getNameId()?->getFormat()?->getValue();
+        if (!$format) {
             throw new RuntimeException('No NameID in Assertion?');
         }
-        return $nameId->getFormat();
+        return $format;
     }
 
     /**
-     * @return array
+     * @return array<string, list<mixed>>
      */
-    public function getStatus()
+    public function getAttributes(): array
     {
-        return $this->sspMessage->getStatus();
+        return AttributeMapper::toFlat($this->getAssertion());
+    }
+
+    public function setAttributes(array $attributes): static
+    {
+        $statement = AttributeMapper::toStatement(
+            $attributes,
+            $this->getAttributeNameFormat(),
+            $this->attributeValueTypes
+        );
+        return $this->setAssertion(MessageRebuilder::assertionWithAttributeStatement($this->getAssertion(), $statement));
     }
 
     /**
-     * @return Assertion[]|EncryptedAssertion[]
+     * Set the xsi:types of the attribute values. Values without a type are typed after their PHP type.
      */
-    public function getAssertions()
+    public function setAttributesValueTypes(array $valueTypes): static
     {
-        return $this->sspMessage->getAssertions();
+        $this->attributeValueTypes = $valueTypes;
+        if ($this->hasAssertion()) {
+            $this->setAttributes($this->getAttributes());
+        }
+        return $this;
+    }
+
+    public function getAttributeNameFormat(): string
+    {
+        return AttributeMapper::nameFormat($this->getAssertion());
+    }
+
+    public function setAttributeNameFormat(string $nameFormat): static
+    {
+        $statement = AttributeMapper::toStatement($this->getAttributes(), $nameFormat, $this->attributeValueTypes);
+        return $this->setAssertion(MessageRebuilder::assertionWithAttributeStatement($this->getAssertion(), $statement));
+    }
+
+    public function getAuthnContextClassRef(): ?string
+    {
+        foreach ($this->getAssertion()->getAuthnStatements() as $authnStatement) {
+            $classRef = $authnStatement->getAuthnContext()->getAuthnContextClassRef();
+            if ($classRef !== null) {
+                return trim($classRef->getContent()->getValue());
+            }
+        }
+        return null;
+    }
+
+    public function setAuthnContextClassRef(?string $classRef): static
+    {
+        $assertion = $this->getAssertion();
+        $authnStatements = $assertion->getAuthnStatements();
+        if ($authnStatements === []) {
+            throw new RuntimeException('No AuthnStatement in Assertion?');
+        }
+
+        $authnContext = MessageRebuilder::authnContext($authnStatements[0]->getAuthnContext(), [
+            'authnContextClassRef' => $classRef === null
+                ? null
+                : new AuthnContextClassRef(SAMLAnyURIValue::fromString($classRef)),
+        ]);
+
+        return $this->setAssertion(
+            MessageRebuilder::assertionWithAuthnStatement($assertion, ['authnContext' => $authnContext])
+        );
+    }
+
+    /**
+     * Algorithm of the enveloped signature of the (first) assertion, if any.
+     */
+    public function getAssertionSignatureMethod(): ?string
+    {
+        return $this->getAssertion()
+            ->getSignature()
+            ?->getSignedInfo()
+            ->getSignatureMethod()
+            ->getAlgorithm()
+            ->getValue();
+    }
+
+    /**
+     * @return array{Code: string, SubCode: string|null, Message: string|null}
+     */
+    public function getStatus(): array
+    {
+        $status = $this->getSspMessage()->getStatus();
+        $subCodes = $status->getStatusCode()->getSubCodes();
+
+        return [
+            'Code' => $status->getStatusCode()->getValue()->getValue(),
+            'SubCode' => isset($subCodes[0]) ? $subCodes[0]->getValue()->getValue() : null,
+            'Message' => $status->getStatusMessage()?->getContent()->getValue(),
+        ];
+    }
+
+    /**
+     * @param array{Code: string, SubCode?: string|null, Message?: string|null} $status
+     */
+    public function setStatus(array $status): static
+    {
+        $this->rebuild(['status' => self::createStatus($status)]);
+        return $this;
+    }
+
+    public function isSuccess(): bool
+    {
+        return $this->getSspMessage()->isSuccess();
+    }
+
+    public function getInResponseTo(): ?string
+    {
+        return $this->getSspMessage()->getInResponseTo()?->getValue();
+    }
+
+    public function setInResponseTo(?string $inResponseTo): static
+    {
+        $this->rebuild([
+            'inResponseTo' => $inResponseTo === null || $inResponseTo === ''
+                ? null
+                : NCNameValue::fromString($inResponseTo),
+        ]);
+        return $this;
+    }
+
+    /**
+     * @param array{Code: string, SubCode?: string|null, Message?: string|null} $status
+     */
+    public static function createStatus(array $status): Status
+    {
+        $subCodes = empty($status['SubCode'])
+            ? []
+            : [new StatusCode(SAMLAnyURIValue::fromString($status['SubCode']))];
+        $message = isset($status['Message']) && $status['Message'] !== ''
+            ? new StatusMessage(SAMLStringValue::fromString($status['Message']))
+            : null;
+
+        return new Status(
+            new StatusCode(SAMLAnyURIValue::fromString($status['Code'] ?? Constants::STATUS_SUCCESS), $subCodes),
+            $message
+        );
     }
 
     /**
@@ -236,18 +413,12 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
         return $this->intendedNameId;
     }
 
-    /**
-     * @param Loa[] $pdpLoas
-     */
     public function setPdpRequestedLoas(array $pdpLoas): EngineBlock_Saml2_ResponseAnnotationDecorator
     {
         $this->pdpRequestedLoas = $pdpLoas;
         return $this;
     }
 
-    /**
-     * @return Loa[]
-     */
     public function getPdpRequestedLoas(): array
     {
         return $this->pdpRequestedLoas;
@@ -290,7 +461,6 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
     }
 
     /**
-     * @param EngineBlock_Saml2_ResponseAnnotationDecorator $originalResponse
      * @return $this
      */
     public function setOriginalResponse(EngineBlock_Saml2_ResponseAnnotationDecorator $originalResponse)
@@ -307,74 +477,14 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
         return $this->originalResponse;
     }
 
-    /**
-     * @return bool
-     */
     public function isTransparentErrorResponse(): bool
     {
         return $this->isTransparentErrorResponse;
     }
 
-    /**
-     * @param bool $isTransparentErrorResponse
-     */
     public function setIsTransparentErrorResponse(bool $isTransparentErrorResponse): void
     {
         $this->isTransparentErrorResponse = $isTransparentErrorResponse;
-    }
-
-    /**
-     * @return array
-     */
-    public function __serialize(): array
-    {
-        if ($this->sspMessage instanceof Response) {
-            $this->_serializableSspMessageXml = $this->sspMessage->toUnsignedXML()->ownerDocument->saveXML();
-            $this->_serializableRelayState = $this->sspMessage->getRelayState();
-        }
-
-        return [
-            'return' => $this->return,
-            'originalIssuer' => $this->originalIssuer,
-            'originalNameId' => $this->originalNameId,
-            'originalBinding' => $this->originalBinding,
-            'originalResponse' => $this->originalResponse,
-            'collabPersonId' => $this->collabPersonId,
-            'customNameId' => $this->customNameId,
-            'intendedNameId' => $this->intendedNameId,
-            'pdpRequestedLoas' => $this->pdpRequestedLoas,
-            'isTransparentErrorResponse' => $this->isTransparentErrorResponse,
-            '_serializableSspMessageXml' => $this->_serializableSspMessageXml,
-            '_serializableRelayState' => $this->_serializableRelayState,
-            'SramInterruptNonce' => $this->SramInterruptNonce,
-        ];
-    }
-
-    /**
-     * Custom deserialization to recreate $sspMessage from XML string
-     */
-    public function __unserialize(array $data): void
-    {
-        foreach ($data as $property => $value) {
-            if (property_exists($this, $property)) {
-                $this->{$property} = $value;
-            }
-        }
-
-        if ($this->_serializableSspMessageXml !== null) {
-            $document = DOMDocumentFactory::fromString($this->_serializableSspMessageXml);
-            $messageDomElement = $document->getElementsByTagNameNS('urn:oasis:names:tc:SAML:2.0:protocol', 'Response')->item(0);
-
-            if ($messageDomElement) {
-                $this->sspMessage = Response::fromXML($messageDomElement);
-            }
-
-            if ($this->_serializableRelayState !== null) {
-                $this->sspMessage->setRelayState($this->_serializableRelayState);
-            }
-
-            $this->_serializableSspMessageXml = null;
-        }
     }
 
     public function setSramInterruptNonce(string $SramInterruptNonce): void
@@ -387,4 +497,65 @@ class EngineBlock_Saml2_ResponseAnnotationDecorator extends EngineBlock_Saml2_Me
         return $this->SramInterruptNonce;
     }
 
+    #[Override]
+    public function assertRestored(): void
+    {
+        parent::assertRestored();
+        $this->originalResponse?->assertRestored();
+    }
+
+    public function __serialize(): array
+    {
+        return $this->serializeMessageState() + [
+            'return' => $this->return,
+            'originalIssuer' => $this->originalIssuer,
+            'originalNameId' => Saml2Value::nameIdToXml($this->originalNameId),
+            'originalBinding' => $this->originalBinding,
+            'originalResponse' => $this->originalResponse,
+            'collabPersonId' => $this->collabPersonId,
+            'customNameId' => Saml2Value::nameIdToXml($this->customNameId),
+            'intendedNameId' => $this->intendedNameId,
+            'pdpRequestedLoas' => $this->pdpRequestedLoas,
+            'isTransparentErrorResponse' => $this->isTransparentErrorResponse,
+            'SramInterruptNonce' => $this->SramInterruptNonce,
+            'attributeValueTypes' => $this->attributeValueTypes,
+        ];
+    }
+
+    public function __unserialize(array $data): void
+    {
+        if (!$this->unserializeMessageState($data)) {
+            return;
+        }
+
+        $this->return = $data['return'] ?? null;
+        $this->originalIssuer = $data['originalIssuer'] ?? null;
+        $this->originalBinding = $data['originalBinding'] ?? null;
+        $this->originalResponse = $data['originalResponse'] ?? null;
+        $this->collabPersonId = $data['collabPersonId'] ?? null;
+        $this->intendedNameId = $data['intendedNameId'] ?? null;
+        $this->pdpRequestedLoas = $data['pdpRequestedLoas'] ?? [];
+        $this->isTransparentErrorResponse = (bool) ($data['isTransparentErrorResponse'] ?? false);
+        $this->SramInterruptNonce = (string) ($data['SramInterruptNonce'] ?? '');
+        $this->attributeValueTypes = (array) ($data['attributeValueTypes'] ?? []);
+
+        try {
+            $this->originalNameId = Saml2Value::nameIdFromXml($data['originalNameId'] ?? null);
+            $this->customNameId = Saml2Value::nameIdFromXml($data['customNameId'] ?? null);
+        } catch (Throwable $e) {
+            $this->markRestoreFailure($e);
+        }
+    }
+
+    #[Override]
+    protected function rebuild(array $changes): void
+    {
+        $this->sspMessage = MessageRebuilder::response($this->getSspMessage(), $changes);
+    }
+
+    #[Override]
+    protected function restoreMessage(string $xml): AbstractMessage
+    {
+        return Response::fromXML(Saml2Value::documentElement($xml));
+    }
 }

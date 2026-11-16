@@ -46,6 +46,8 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
     /**
      * @param string $requestId
      * @return EngineBlock_Saml2_AuthnRequestAnnotationDecorator|null
+     * @throws EngineBlock_Corto_Module_Services_SessionLostException when the stored state is from another release
+     * @throws EngineBlock_Corto_Module_Bindings_VerificationException when the stored message cannot be decoded
      */
     public function findRequestById($requestId)
     {
@@ -55,7 +57,20 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
             return null;
         }
 
-        return $session->get(self::SESSION_KEY_REQUESTS, [])[$requestId] ?? null;
+        $request = $session->get(self::SESSION_KEY_REQUESTS, [])[$requestId] ?? null;
+        if ($request === null) {
+            return null;
+        }
+
+        // D7: state that was not written by this release is never trusted; the flow restarts via session-lost feedback.
+        if (!$request instanceof EngineBlock_Saml2_AuthnRequestAnnotationDecorator) {
+            throw new EngineBlock_Corto_Module_Services_SessionLostException(
+                sprintf('Stored request "%s" is not readable by this release', $requestId)
+            );
+        }
+        $request->assertRestored();
+
+        return $request;
     }
 
     /**

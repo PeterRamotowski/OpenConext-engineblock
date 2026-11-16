@@ -139,9 +139,7 @@ Feature:
   Scenario: The Service Provider can replace the NameID by setting the CustomNameID with an object representation of the NameID
     Given SP "SP-with-Attribute-Manipulations" has the following Attribute Manipulation:
       """
-      $nameId = new \SAML2\XML\saml\NameID();
-      $nameId->setFormat('urn:oasis:names:tc:SAML:2.0:nameid-format:transient');
-      $nameId->setValue('MIES');
+      $nameId = \OpenConext\EngineBlock\Saml2\Message\Saml2Value::nameId('MIES', 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient');
       $response['__']['CustomNameId'] = $nameId;
       """
      And SP "SP-with-Attribute-Manipulations" uses the Unspecified NameID format

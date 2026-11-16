@@ -20,7 +20,6 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\InMemoryMetadataRepository;
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Twig\Environment;
 
@@ -37,7 +36,6 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 
         $originalRequest = $this->factoryOriginalRequest();
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -54,7 +52,6 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 
         $originalRequest = $this->factoryOriginalRequest();
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -76,9 +73,8 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         $originalRequest = $this->factoryOriginalRequest();
 
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        $identityProvider->nameIdFormat = 'fooFormat';
+        $identityProvider->nameIdFormat = 'urn:example:nameid-format:foo';
 
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -86,7 +82,7 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         );
 
         $nameIdPolicy = $enhancedRequest->getNameIdPolicy();
-        $this->assertEquals($nameIdPolicy['Format'], 'fooFormat');
+        $this->assertEquals($nameIdPolicy['Format'], 'urn:example:nameid-format:foo');
         $this->assertTrue($nameIdPolicy['AllowCreate']);
     }
 
@@ -96,9 +92,8 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         $originalRequest = $this->factoryOriginalRequest();
 
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        $identityProvider->nameIdFormat = \SAML2\Constants::NAMEID_TRANSIENT;
+        $identityProvider->nameIdFormat = \SimpleSAML\SAML2\Constants::NAMEID_TRANSIENT;
 
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -106,7 +101,7 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         );
 
         $this->assertSame(
-            ['Format' => \SAML2\Constants::NAMEID_TRANSIENT],
+            ['Format' => \SimpleSAML\SAML2\Constants::NAMEID_TRANSIENT],
             $enhancedRequest->getNameIdPolicy()
         );
     }
@@ -148,14 +143,9 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         ];
     }
 
-    /**
-     * @return array
-     */
-    private function factoryOriginalRequest()
+    private function factoryOriginalRequest(): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $originalRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest());
-
-        return $originalRequest;
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
     }
 
     private function factoryProxyServer()

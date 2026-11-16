@@ -22,8 +22,6 @@ use Monolog\Logger;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\ShibMdScope;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\Response;
 
 class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSchacHomeOrganisationTest extends TestCase
 {
@@ -53,13 +51,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSchacHomeOr
         $this->handler = new TestHandler();
         $this->logger  = new Logger('Test', array($this->handler));
 
-        $assertion = new Assertion();
-        $assertion->setAttributes(array(self::URN_OID => array(self::SHO_VALUE)));
-
-        $response = new Response();
-        $response->setAssertions(array($assertion));
-
-        $this->response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        $this->response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse(['assertion' => ['attributes' => array(self::URN_OID => array(self::SHO_VALUE))]]);
     }
 
     public function testNoConfiguredScopesLeadsToNoVerification()
@@ -87,7 +79,7 @@ class EngineBlock_Test_Corto_Filter_Command_VerifyShibMdScopingAllowsSchacHomeOr
         $identityProvider->shibMdScopes = array($scope);
 
         // wipe the assertion attributes
-        $this->response->getAssertion()->setAttributes(array());
+        $this->response->setAttributes(array());
 
         $verifier = new EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSchacHomeOrganisation($this->logger, false);
         $verifier->setResponse($this->response);

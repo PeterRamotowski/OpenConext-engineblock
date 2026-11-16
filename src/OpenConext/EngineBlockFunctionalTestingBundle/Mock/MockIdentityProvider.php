@@ -18,16 +18,27 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Response;
 use ReflectionClass;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use RuntimeException;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Response as SAMLResponse;
-use SAML2\XML\md\IDPSSODescriptor;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\md\AbstractRoleDescriptorType;
+use SimpleSAML\SAML2\XML\md\IDPSSODescriptor;
+use SimpleSAML\SAML2\XML\md\SingleSignOnService;
 
 /**
+ * Configuration (persisted as plain data):
+ * - ssoLocation: the SSO location (HTTP-Redirect binding) of the mock IdP
+ * - responseXml: the (unsigned) template Response the mock IdP sends
+ * - signResponses, signAssertions, useRedirect: booleans
+ * - signatureMethod: the XML signature algorithm (RSA-SHA256 by default)
+ * - encryptionCert: path to the certificate to encrypt the assertions to (RSA-OAEP)
+ * - encryptionSharedKey: shared key to encrypt the assertions with (AES-128-CBC)
+ * - statusCodeTop, statusCodeSecond, statusMessage: status overrides
+ * - authnContextClassRef: AuthnContextClassRef override, written as is (may be an invalid URI)
+ *
  * @SuppressWarnings(PHPMD.TooManyPublicMethods) Allows for better control
  * @SuppressWarnings(PHPMD.ExcessiveClassComplexity)
  */
@@ -43,40 +54,53 @@ class MockIdentityProvider extends AbstractMockEntityRole
 
     public function singleSignOnLocation()
     {
-        return $this->getSsoRole()->getSingleSignOnService()[0]->getLocation();
+        return $this->config['ssoLocation'];
     }
 
+    protected function buildRoleDescriptor(array $keyDescriptors): AbstractRoleDescriptorType
+    {
+        return new IDPSSODescriptor(
+            singleSignOnService: [
+                new SingleSignOnService(
+                    SAMLAnyURIValue::fromString(Constants::BINDING_HTTP_REDIRECT),
+                    SAMLAnyURIValue::fromString($this->singleSignOnLocation()),
+                ),
+            ],
+            protocolSupportEnumeration: $this->protocolSupportEnumeration(),
+            keyDescriptor: $keyDescriptors,
+        );
+    }
+
+    /**
+     * Store the (unsigned) template Response the mock IdP sends.
+     */
     public function setResponse(Response $response)
     {
-        $role = $this->getSsoRole();
-        $role->setExtensions(['SAMLResponse' => $response]);
+        $this->config['responseXml'] = Saml2Value::toXmlString($response->getSspMessage());
 
         return $this;
     }
 
+    /**
+     * A fresh copy of the template Response.
+     *
+     * @return Response
+     */
+    public function getResponse()
+    {
+        return Response::fromXml($this->config['responseXml']);
+    }
+
     public function setStatusMessage($statusMessage)
     {
-        $role = $this->getSsoRole();
-        $role->setExtensions(array_merge($role->getExtensions(), ['StatusMessage' => $statusMessage]));
+        $this->config['statusMessage'] = $statusMessage;
     }
 
     public function setStatusCode($topLevelStatusCode, $secondLevelStatusCode = '')
     {
-        $role = $this->getSsoRole();
-
-        $role->setExtensions(
-            array_merge(
-                $role->getExtensions(),
-                ['StatusCodeTop' => $this->getFullyQualifiedStatusCode($topLevelStatusCode)]
-            )
-        );
+        $this->config['statusCodeTop'] = $this->getFullyQualifiedStatusCode($topLevelStatusCode);
         if (!empty($secondLevelStatusCode)) {
-            $role->setExtensions(
-                array_merge(
-                    $role->getExtensions(),
-                    ['StatusCodeSecond' => $this->getFullyQualifiedStatusCode($secondLevelStatusCode)]
-                )
-            );
+            $this->config['statusCodeSecond'] = $this->getFullyQualifiedStatusCode($secondLevelStatusCode);
         }
     }
 
@@ -85,7 +109,7 @@ class MockIdentityProvider extends AbstractMockEntityRole
         $class = new ReflectionClass(Constants::class);
         $constants = $class->getConstants();
         foreach ($constants as $constName => $constValue) {
-            if (strpos($constName, 'STATUS_') !== 0) {
+            if (strpos($constName, 'STATUS_') !== 0 || $constName === 'STATUS_PREFIX') {
                 continue;
             }
 
@@ -99,67 +123,35 @@ class MockIdentityProvider extends AbstractMockEntityRole
         throw new RuntimeException(sprintf('"%s" is not a valid status code', $shortStatusCode));
     }
 
-    /**
-     * @return Response
-     */
-    public function getResponse()
-    {
-        $role = $this->getSsoRole();
-        return $role->getExtensions()['SAMLResponse'];
-    }
-
     public function getStatusCodeTop()
     {
-        $role = $this->getSsoRole();
-
-        if (!isset($role->getExtensions()['StatusCodeTop'])) {
-            return Constants::STATUS_SUCCESS;
-        }
-
-        return $role->getExtensions()['StatusCodeTop'];
+        return $this->config['statusCodeTop'] ?? Constants::STATUS_SUCCESS;
     }
 
     public function getStatusCodeSecond()
     {
-        $role = $this->getSsoRole();
-
-        if (!isset($role->getExtensions()['StatusCodeSecond'])) {
-            return '';
-        }
-
-        return $role->getExtensions()['StatusCodeSecond'];
+        return $this->config['statusCodeSecond'] ?? '';
     }
 
     public function getStatusMessage()
     {
-        $role = $this->getSsoRole();
-
-        if (!isset($role->getExtensions()['StatusMessage'])) {
-            return '';
-        }
-
-        return $role->getExtensions()['StatusMessage'];
+        return $this->config['statusMessage'] ?? '';
     }
 
     public function useHttpRedirect()
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['UseRedirect' => true]
-            )
-        );
+        $this->config['useRedirect'] = true;
         return $this;
+    }
+
+    public function mustUseHttpRedirect()
+    {
+        return !empty($this->config['useRedirect']);
     }
 
     public function useEncryptionCert($certFilePath)
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['EncryptionCert' => $certFilePath]
-            )
-        );
+        $this->config['encryptionCert'] = $certFilePath;
         // an encrypted response must be signed
         $this->useResponseSigning();
 
@@ -168,75 +160,40 @@ class MockIdentityProvider extends AbstractMockEntityRole
 
     public function useEncryptionSharedKey($sharedKey)
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['EncryptionSharedKey' => $sharedKey]
-            )
-        );
+        $this->config['encryptionSharedKey'] = $sharedKey;
         return $this;
     }
 
     /**
-     * @return XMLSecurityKey
+     * The PEM certificate to encrypt the assertions to, if any.
      */
-    public function getEncryptionKey()
+    public function getEncryptionCertificate(): ?string
     {
-        $encryptionKey = $this->getRsaEncryptionKey();
-        if ($encryptionKey) {
-            return $encryptionKey;
-        }
-
-        $encryptionKey = $this->getSharedEncryptionKey();
-        if ($encryptionKey) {
-            return $encryptionKey;
-        }
-
-        return null;
-    }
-
-    protected function getRsaEncryptionKey()
-    {
-        if (!isset($this->descriptor->getExtensions()['EncryptionCert'])) {
+        if (empty($this->config['encryptionCert'])) {
             return null;
         }
 
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_OAEP_MGF1P, ['type' => 'public']);
-        $key->loadKey($this->findFile($this->descriptor->getExtensions()['EncryptionCert']), true, true);
-
-        return $key;
+        return $this->readFile($this->config['encryptionCert']);
     }
 
-    protected function getSharedEncryptionKey()
+    /**
+     * The shared key to encrypt the assertions with, if any (and no encryption certificate is configured).
+     */
+    public function getEncryptionSharedKey(): ?string
     {
-        if (!isset($this->descriptor->getExtensions()['EncryptionSharedKey'])) {
+        if ($this->getEncryptionCertificate() !== null || empty($this->config['encryptionSharedKey'])) {
             return null;
         }
 
-        $key = new XMLSecurityKey(XMLSecurityKey::AES128_CBC);
-        $key->loadKey($this->descriptor->getExtensions()['EncryptionSharedKey']);
-
-        return $key;
-    }
-
-    public function mustUseHttpRedirect()
-    {
-        $extensions = $this->descriptor->getExtensions();
-        return isset($extensions['UseRedirect']) && $extensions['UseRedirect'];
+        return $this->config['encryptionSharedKey'];
     }
 
     public function removeAttribute($forbiddenAttributeName)
     {
-        $role = $this->getSsoRole();
-
-        /** @var Response $response */
-        $response = $role->getExtensions()['SAMLResponse'];
-        $assertions = $response->getAssertions();
+        $response = $this->getResponse();
 
         $newAttributes = [];
-
-        $attributes = $assertions[0]->getAttributes();
-        foreach ($attributes as $attributeName => $attributeValues) {
+        foreach ($response->getAttributes() as $attributeName => $attributeValues) {
             if ($attributeName === $forbiddenAttributeName) {
                 continue;
             }
@@ -244,72 +201,68 @@ class MockIdentityProvider extends AbstractMockEntityRole
             $newAttributes[$attributeName] = $attributeValues;
         }
 
-        $assertions[0]->setAttributes($newAttributes);
+        $response->setAttributes($newAttributes);
+        $this->setResponse($response);
     }
 
     public function setAttribute($attributeName, array $attributeValues)
     {
-        $role = $this->getSsoRole();
+        $response = $this->getResponse();
 
-        /** @var Response $response */
-        $response = $role->getExtensions()['SAMLResponse'];
-        $assertions = $response->getAssertions();
-
-        $attributes = $assertions[0]->getAttributes();
-        $newAttributes = $attributes;
-
+        $newAttributes = $response->getAttributes();
         $newAttributes[$attributeName] = $attributeValues;
 
-        $assertions[0]->setAttributes($newAttributes);
+        $response->setAttributes($newAttributes);
+        $this->setResponse($response);
     }
 
     public function setAuthnContextClassRef($authnContextClassRefValue)
     {
-        $role = $this->getSsoRole();
-
-        /** @var Response $response */
-        $response = $role->getExtensions()['SAMLResponse'];
-        $assertions = $response->getAssertions();
-
-        $assertions[0]->setAuthnContextClassRef($authnContextClassRefValue);
+        $this->config['authnContextClassRef'] = $authnContextClassRefValue;
     }
 
+    public function getAuthnContextClassRef(): ?string
+    {
+        return $this->config['authnContextClassRef'] ?? null;
+    }
+
+    public function useSignatureMethod(string $signatureMethod)
+    {
+        $this->config['signatureMethod'] = $signatureMethod;
+        return $this;
+    }
+
+    public function getSignatureMethod(): string
+    {
+        return $this->config['signatureMethod'] ?? Constants::SIG_RSA_SHA256;
+    }
 
     public function useResponseSigning()
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['SignResponses' => true]
-            )
-        );
+        $this->config['signResponses'] = true;
         return $this;
     }
 
     public function mustSignResponses()
     {
-        return isset($this->descriptor->getExtensions()['SignResponses']);
+        return !empty($this->config['signResponses']);
     }
 
     public function doNotUseResponseSigning()
     {
-        unset($this->descriptor->getExtensions()['SignResponses']);
+        $this->config['signResponses'] = false;
         return $this;
     }
 
     public function signAssertions()
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['SignAssertions' => true]
-            )
-        );
+        $this->config['signAssertions'] = true;
+        return $this;
     }
 
     public function mustSignAssertions()
     {
-        return isset($this->descriptor->getExtensions()['SignAssertions']);
+        return !empty($this->config['signAssertions']);
     }
 
     public function doNotSendAssertions()
@@ -358,77 +311,5 @@ class MockIdentityProvider extends AbstractMockEntityRole
     public function shouldNotSendAssertions()
     {
         return $this->sendAssertions === false;
-    }
-
-    protected function getRoleClass()
-    {
-        return IDPSSODescriptor::class;
-    }
-
-    /**
-     * Handle serialization of the MockIdentityProvider.
-     * Convert the SAMLResponse (which contains non-serializable DOMDocument) to XML string.
-     *
-     * @return array
-     */
-    public function __serialize(): array
-    {
-        $role = $this->getSsoRole();
-        $extensions = $role->getExtensions();
-
-        // Convert SAMLResponse to XML if it exists
-        if (isset($extensions['SAMLResponse']) && $extensions['SAMLResponse'] instanceof SAMLResponse) {
-            $samlResponse = $extensions['SAMLResponse'];
-            $xml = $samlResponse->toUnsignedXML()->ownerDocument->saveXML();
-
-            // Store the XML and RelayState temporarily in the extensions
-            $extensions['_SAMLResponseXML'] = $xml;
-            $extensions['_SAMLResponseRelayState'] = $samlResponse->getRelayState();
-            unset($extensions['SAMLResponse']);
-            $role->setExtensions($extensions);
-        }
-
-        return [
-            'name' => $this->name,
-            'descriptor' => $this->descriptor,
-            'sendAssertions' => $this->sendAssertions,
-            'turnBackTime' => $this->turnBackTime,
-            'fromTheFuture' => $this->fromTheFuture,
-            'omitInResponseTo' => $this->omitInResponseTo,
-        ];
-    }
-
-    /**
-     * Handle deserialization of the MockIdentityProvider.
-     * Reconstruct the SAMLResponse from the stored XML string.
-     */
-    public function __unserialize(array $data): void
-    {
-        foreach ($data as $property => $value) {
-            if (property_exists($this, $property)) {
-                $this->{$property} = $value;
-            }
-        }
-
-        $role = $this->getSsoRole();
-        $extensions = $role->getExtensions();
-
-        if (isset($extensions['_SAMLResponseXML'])) {
-            $xml = $extensions['_SAMLResponseXML'];
-            $document = DOMDocumentFactory::fromString($xml);
-            $messageDomElement = $document->getElementsByTagNameNS('urn:oasis:names:tc:SAML:2.0:protocol', 'Response')->item(0);
-
-            if ($messageDomElement) {
-                $samlResponse = new Response($messageDomElement);
-
-                if (isset($extensions['_SAMLResponseRelayState']) && $extensions['_SAMLResponseRelayState'] !== null) {
-                    $samlResponse->setRelayState($extensions['_SAMLResponseRelayState']);
-                }
-
-                unset($extensions['_SAMLResponseXML'], $extensions['_SAMLResponseRelayState']);
-                $extensions['SAMLResponse'] = $samlResponse;
-                $role->setExtensions($extensions);
-            }
-        }
     }
 }

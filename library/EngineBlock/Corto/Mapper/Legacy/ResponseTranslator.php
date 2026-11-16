@@ -16,9 +16,8 @@
  * limitations under the License.
  */
 
-use SAML2\DOMDocumentFactory;
-use SAML2\Response;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\XML\samlp\Response;
 
 /**
  * Class EngineBlock_Corto_Mapper_Legacy_ResponseTranslator
@@ -47,9 +46,7 @@ class EngineBlock_Corto_Mapper_Legacy_ResponseTranslator
      */
     public function fromNewFormat(EngineBlock_Saml2_ResponseAnnotationDecorator $response)
     {
-        $legacyResponse = EngineBlock_Corto_XmlToArray::xml2array(
-            $response->getSspMessage()->toUnsignedXML()->ownerDocument->saveXML()
-        );
+        $legacyResponse = EngineBlock_Corto_XmlToArray::xml2array($response->toXml());
 
         return $this->addPrivateVarsToLegacy($legacyResponse, $response);
     }
@@ -63,9 +60,7 @@ class EngineBlock_Corto_Mapper_Legacy_ResponseTranslator
         $legacyResponse = EngineBlock_Corto_XmlToArray::registerNamespaces($legacyResponse);
         $xml = EngineBlock_Corto_XmlToArray::array2xml($legacyResponse);
 
-        $document = DOMDocumentFactory::fromString($xml);
-
-        $response = new Response($document->firstChild);
+        $response = Response::fromXML(Saml2Value::documentElement($xml));
         $annotatedResponse = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
 
         return $this->addPrivateVars($annotatedResponse, $legacyResponse);
@@ -110,10 +105,7 @@ class EngineBlock_Corto_Mapper_Legacy_ResponseTranslator
             $value = $from[EngineBlock_Corto_XmlToArray::PRIVATE_PFX][$privateVar];
             // NameIds need to be converted to their object representation (intended nameID is still a string)
             if ($privateVar === 'CustomNameId' && is_array($value)) {
-                $nameId = new NameID();
-                $nameId->setValue($value['Value']);
-                $nameId->setFormat($value['Format']);
-                $value = $nameId;
+                $value = Saml2Value::nameId((string) $value['Value'], $value['Format'] ?? null);
             }
 
             // Does this value have a __t tag? If so, make sure it's namespaces are registered.

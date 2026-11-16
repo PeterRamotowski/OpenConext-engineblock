@@ -494,6 +494,11 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
         return $this->container->get(\OpenConext\EngineBlock\Service\MfaHelper::class);
     }
 
+    public function getSessionCookieName(): string
+    {
+        return (string) $this->container->getParameter('session_cookie_name');
+    }
+
     /**
      * @return string
      */

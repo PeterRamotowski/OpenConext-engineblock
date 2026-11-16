@@ -61,13 +61,12 @@ class EngineBlock_Corto_Module_Service_SramInterrupt
 
         $receivedResponse = $nextProcessStep->getResponse();
         $receivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
-        $originalAssertion = clone $receivedResponse->getAssertions()[0];
 
         if(!$receivedRequest instanceof EngineBlock_Saml2_AuthnRequestAnnotationDecorator){
             throw new RuntimeException('Request cannot be empty at this stage');
         }
 
-        $attributes = $receivedResponse->getAssertion()->getAttributes();
+        $attributes = $receivedResponse->getAttributes();
         $nonce = $receivedResponse->getSramInterruptNonce();
 
         $request = new AttributesRequest($nonce);
@@ -75,10 +74,9 @@ class EngineBlock_Corto_Module_Service_SramInterrupt
 
         if (!empty($interruptResponse->attributes)) {
             $attributes = $this->_sbsAttributeMerger->mergeAttributes($attributes, $interruptResponse->attributes);
-            $receivedResponse->getAssertion()->setAttributes($attributes);
-
-            // After updating the attributes, reset the types, so SAML2 will set them
-            $receivedResponse->getAssertion()->setAttributesValueTypes([]);
+            // Reset the value types first, so the merged attributes are written with their default types
+            $receivedResponse->setAttributesValueTypes([]);
+            $receivedResponse->setAttributes($attributes);
         }
 
         $this->_server->addConsentProcessStep($receivedResponse, $receivedRequest);

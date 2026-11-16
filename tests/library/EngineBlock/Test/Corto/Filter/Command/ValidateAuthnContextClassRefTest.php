@@ -21,8 +21,6 @@ use Monolog\Handler\TestHandler;
 use Monolog\Logger;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\Response;
 
 class EngineBlock_Test_Corto_Filter_Command_ValidateAuthnContextClassRefTest extends TestCase
 {
@@ -48,13 +46,7 @@ class EngineBlock_Test_Corto_Filter_Command_ValidateAuthnContextClassRefTest ext
         $this->handler = new TestHandler();
         $this->logger  = new Logger('Test', array($this->handler));
 
-        $assertion = new Assertion();
-        $assertion->setAuthnContextClassRef('urn:oasis:names:tc:SAML:2.0:ac:classes:Password');
-
-        $response = new Response();
-        $response->setAssertions(array($assertion));
-
-        $this->response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        $this->response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse(['assertion' => ['classRef' => 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password']]);
     }
 
     public function testNoConfiguredBlacklistRegexShouldPass()

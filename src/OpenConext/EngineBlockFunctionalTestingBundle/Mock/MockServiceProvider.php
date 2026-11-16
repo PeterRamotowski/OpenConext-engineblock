@@ -19,32 +19,59 @@
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\AuthnRequest;
-use SAML2\AuthnRequest as SAMLAuthnRequest;
-use SAML2\DOMDocumentFactory;
-use SAML2\XML\md\SPSSODescriptor;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\md\AbstractRoleDescriptorType;
+use SimpleSAML\SAML2\XML\md\AssertionConsumerService;
+use SimpleSAML\SAML2\XML\md\SPSSODescriptor;
+use SimpleSAML\XMLSchema\Type\BooleanValue;
+use SimpleSAML\XMLSchema\Type\UnsignedShortValue;
 
 /**
- * Class MockServiceProvider
+ * Configuration (persisted as plain data):
+ * - acsLocation: the ACS location (HTTP-POST binding) of the mock SP
+ * - loginRedirectUrl, loginPostUrl: the URLs that make the mock SP start a login
+ * - transparentIdp: entityId of the IdP to use transparently
+ * - unsolicited, authnRequestsSigned, usePost, trustedProxy, malformed: booleans
+ * - authnContextClassRef: AuthnContextClassRef setting
+ * The AuthnRequest the mock SP sends is persisted as XML (see AuthnRequest::__serialize()).
+ *
  * @package OpenConext\EngineBlockFunctionalTestingBundle\Mock
  * @SuppressWarnings("PMD")
  */
 class MockServiceProvider extends AbstractMockEntityRole
 {
+    private ?AuthnRequest $authnRequest = null;
+
     public function loginUrlRedirect()
     {
-        return $this->descriptor->getExtensions()['LoginRedirectUrl'];
+        return $this->config['loginRedirectUrl'];
     }
 
     public function loginUrlPost()
     {
-        return $this->descriptor->getExtensions()['LoginPostUrl'];
+        return $this->config['loginPostUrl'];
     }
 
     public function assertionConsumerServiceLocation()
     {
-        /** @var SPSSODescriptor $role */
-        $role = $this->getSsoRole();
-        return $role->getAssertionConsumerService()[0]->getLocation();
+        return $this->config['acsLocation'];
+    }
+
+    protected function buildRoleDescriptor(array $keyDescriptors): AbstractRoleDescriptorType
+    {
+        return new SPSSODescriptor(
+            assertionConsumerService: [
+                new AssertionConsumerService(
+                    UnsignedShortValue::fromString('0'),
+                    SAMLAnyURIValue::fromString(Constants::BINDING_HTTP_POST),
+                    SAMLAnyURIValue::fromString($this->assertionConsumerServiceLocation()),
+                ),
+            ],
+            protocolSupportEnumeration: $this->protocolSupportEnumeration(),
+            authnRequestsSigned: $this->mustSignAuthnRequests() ? BooleanValue::fromBoolean(true) : null,
+            keyDescriptors: $keyDescriptors,
+        );
     }
 
     /**
@@ -52,95 +79,73 @@ class MockServiceProvider extends AbstractMockEntityRole
      */
     public function getAuthnRequest()
     {
-        return $this->descriptor->getExtensions()['SAMLRequest'];
+        return $this->authnRequest;
     }
 
-    public function setAuthnRequest(SAMLAuthnRequest $authnRequest)
+    public function setAuthnRequest(AuthnRequest $authnRequest)
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['SAMLRequest' => $authnRequest]
-            )
-        );
+        $this->authnRequest = $authnRequest;
     }
 
     public function useIdpTransparently($entityId)
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['TransparentIdp' => $entityId]
-            )
-        );
+        $this->config['transparentIdp'] = $entityId;
     }
 
     public function getTransparentIdp()
     {
-        $extenstions = $this->descriptor->getExtensions();
-        return $extenstions['TransparentIdp'] ?? '';
+        return $this->config['transparentIdp'] ?? '';
     }
 
     public function mustUseUnsolicited()
     {
-        $extension = $this->descriptor->getExtensions();
-        return isset($extension['Unsolicited']) && $extension['Unsolicited'];
+        return !empty($this->config['unsolicited']);
     }
 
     public function signAuthnRequests()
     {
-        /** @var SPSSODescriptor $role */
-        $role = $this->getSsoRole();
-        $role->setAuthnRequestsSigned(true);
+        $this->config['authnRequestsSigned'] = true;
         return $this;
     }
 
     public function mustSignAuthnRequests()
     {
-        /** @var SPSSODescriptor $role */
-        $role = $this->getSsoRole();
-        return $role->getAuthnRequestsSigned();
+        return !empty($this->config['authnRequestsSigned']);
     }
 
     public function useHttpPost()
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['UsePost' => true]
-            )
-        );
+        $this->config['usePost'] = true;
     }
 
     public function mustUsePost()
     {
-        return isset($this->descriptor->getExtensions()['UsePost']);
+        return !empty($this->config['usePost']);
     }
 
     public function useHttpRedirect()
     {
-        unset($this->descriptor->getExtensions()['UsePost']);
+        $this->config['usePost'] = false;
     }
 
     public function isTrustedProxy()
     {
-        $descriptor = $this->descriptor;
-        return isset($descriptor->getExtensions()['TrustedProxy']) && $descriptor->getExtensions()['TrustedProxy'];
+        return !empty($this->config['trustedProxy']);
     }
 
     public function setAuthnRequestProxyCountTo($proxyCount)
     {
-        $this->descriptor->getExtensions()['SAMLRequest']->setProxyCount($proxyCount);
+        $this->authnRequest->setProxyCount($proxyCount === null ? null : (int) $proxyCount);
     }
 
     public function setRequestedProtocolBinding(string $binding)
     {
-        $this->descriptor->getExtensions()['SAMLRequest']->setProtocolBinding($binding);
+        $this->authnRequest->setProtocolBinding($binding);
     }
 
     public function setAuthnRequestToPassive()
     {
-        $this->descriptor->getExtensions()['SAMLRequest']->setIsPassive(true);
+        $this->authnRequest->setIsPassive(true);
     }
 
     /**
@@ -151,17 +156,17 @@ class MockServiceProvider extends AbstractMockEntityRole
         $scope = $this->getScoping();
         $scope[] = $idpEntityId;
 
-        $this->descriptor->getExtensions()['SAMLRequest']->setIDPList($scope);
+        $this->authnRequest->setIDPList($scope);
     }
 
     public function sendMalformedAuthNRequest()
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['Malformed' => true]
-            )
-        );
+        $this->config['malformed'] = true;
+    }
+
+    public function mustSendMalformedAuthnRequest(): bool
+    {
+        return !empty($this->config['malformed']);
     }
 
     /**
@@ -169,79 +174,16 @@ class MockServiceProvider extends AbstractMockEntityRole
      */
     public function getScoping()
     {
-        return $this->descriptor->getExtensions()['SAMLRequest']->getIDPList();
-    }
-
-    protected function getRoleClass()
-    {
-        return SPSSODescriptor::class;
+        return $this->authnRequest->getIDPList();
     }
 
     public function setAuthnContextClassRef($classRef)
     {
-        $this->descriptor->setExtensions(
-            array_merge(
-                $this->descriptor->getExtensions(),
-                ['AuthnContextClassRef' => $classRef]
-            )
-        );
+        $this->config['authnContextClassRef'] = $classRef;
     }
 
-    /**
-     * Handle serialization of the MockServiceProvider.
-     * Convert the SAMLRequest (which contains non-serializable DOMDocument) to XML string.
-     *
-     * @return array
-     */
-    public function __serialize(): array
+    public function getAuthnContextClassRef(): ?string
     {
-        $extensions = $this->descriptor->getExtensions();
-
-        // Convert SAMLRequest to XML if it exists
-        if (isset($extensions['SAMLRequest']) && $extensions['SAMLRequest'] instanceof SAMLAuthnRequest) {
-            $samlRequest = $extensions['SAMLRequest'];
-            $xml = $samlRequest->toUnsignedXML()->ownerDocument->saveXML();
-
-            // Store the XML and RelayState temporarily in the extensions
-            $extensions['_SAMLRequestXML'] = $xml;
-            $extensions['_SAMLRequestRelayState'] = $samlRequest->getRelayState();
-            unset($extensions['SAMLRequest']);
-            $this->descriptor->setExtensions($extensions);
-        }
-
-        return ['name' => $this->name, 'descriptor' => $this->descriptor];
-    }
-
-    /**
-     * Handle deserialization of the MockServiceProvider.
-     * Reconstruct the SAMLRequest from the stored XML string.
-     */
-    public function __unserialize(array $data): void
-    {
-        foreach ($data as $property => $value) {
-            if (property_exists($this, $property)) {
-                $this->{$property} = $value;
-            }
-        }
-
-        $extensions = $this->descriptor->getExtensions();
-
-        if (isset($extensions['_SAMLRequestXML'])) {
-            $xml = $extensions['_SAMLRequestXML'];
-            $document = DOMDocumentFactory::fromString($xml);
-            $messageDomElement = $document->getElementsByTagNameNS('urn:oasis:names:tc:SAML:2.0:protocol', 'AuthnRequest')->item(0);
-
-            if ($messageDomElement) {
-                $samlRequest = new AuthnRequest($messageDomElement);
-
-                if (isset($extensions['_SAMLRequestRelayState']) && $extensions['_SAMLRequestRelayState'] !== null) {
-                    $samlRequest->setRelayState($extensions['_SAMLRequestRelayState']);
-                }
-
-                unset($extensions['_SAMLRequestXML'], $extensions['_SAMLRequestRelayState']);
-                $extensions['SAMLRequest'] = $samlRequest;
-                $this->descriptor->setExtensions($extensions);
-            }
-        }
+        return $this->config['authnContextClassRef'] ?? null;
     }
 }

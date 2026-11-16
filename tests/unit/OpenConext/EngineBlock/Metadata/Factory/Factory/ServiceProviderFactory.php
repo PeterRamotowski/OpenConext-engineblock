@@ -36,7 +36,7 @@ use OpenConext\EngineBlockBundle\Configuration\TestFeatureConfiguration;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ServiceProviderFactory extends AbstractEntity

@@ -27,7 +27,7 @@ use OpenConext\EngineBlockBundle\Authentication\AuthenticationState;
 use OpenConext\Value\Saml\Entity;
 use OpenConext\Value\Saml\EntityId;
 use OpenConext\Value\Saml\EntityType;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 
@@ -116,7 +116,7 @@ class EngineBlock_Corto_Module_Service_AssertionConsumer implements EngineBlock_
         if ($receivedRequest->isDebugRequest()) {
             $sp = $this->getEngineSpRole($this->_server);
         } else {
-            $issuer = $receivedRequest->getIssuer() ? $receivedRequest->getIssuer()->getValue() : '';
+            $issuer = ($receivedRequest->getIssuerValue() ?? '');
             $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($issuer);
         }
 
@@ -137,7 +137,7 @@ class EngineBlock_Corto_Module_Service_AssertionConsumer implements EngineBlock_
         );
 
         // Flush log if SP or IdP has additional logging enabled
-        $issuer = $receivedResponse->getIssuer() ? $receivedResponse->getIssuer()->getValue() : '';
+        $issuer = ($receivedResponse->getIssuerValue() ?? '');
         $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId($issuer);
 
         // Set SSO session cookie if 'feature_enable_sso_notification' is enabled and the response is successful
@@ -181,7 +181,8 @@ class EngineBlock_Corto_Module_Service_AssertionConsumer implements EngineBlock_
         // or another service.
         EngineBlock_Corto_Model_Response_Cache::rememberIdp($receivedRequest, $receivedResponse);
 
-        $originalAssertions = clone $receivedResponse->getAssertions()[0];
+        // v7 assertions are immutable: later attribute filtering rebuilds the response and leaves this one intact.
+        $originalAssertions = $receivedResponse->getAssertion();
         $this->_server->filterInputAssertionAttributes($receivedResponse, $receivedRequest);
 
 

@@ -17,8 +17,8 @@
  */
 
 use OpenConext\EngineBlock\Metadata\RequestedAttribute;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
 
 /**
  * Metadata for (known) attributes.
@@ -136,7 +136,7 @@ class EngineBlock_Attributes_Metadata
             }
 
             $attributes[$attributeName] = array_map(function (NameID $nameId) {
-                return $nameId->getValue();
+                return $nameId->getContent()->getValue();
             }, $attributeValues);
         }
 

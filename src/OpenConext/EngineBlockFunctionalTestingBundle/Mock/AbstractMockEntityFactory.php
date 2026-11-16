@@ -18,14 +18,7 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
-use DOMDocument;
-use DOMElement;
-use SAML2\XML\ds\KeyInfo;
-use SAML2\XML\ds\KeyName;
-use SAML2\XML\ds\X509Certificate;
-use SAML2\XML\ds\X509Data;
-use SAML2\XML\md\KeyDescriptor;
-use SimpleSAML\XML\Chunk;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\XmlSecurity;
 
 /**
  * Class AbstractMockEntityFactory
@@ -34,36 +27,17 @@ use SimpleSAML\XML\Chunk;
 abstract class AbstractMockEntityFactory
 {
     /**
-     * @return KeyDescriptor
+     * The configuration of the default (snakeoil) signing key pair.
+     *
+     * @return array{certData: string, privateKeyPem: string}
      */
-    protected function generateDefaultSigningKeyPair()
+    protected function generateDefaultSigningKeyPair(): array
     {
-        $signingKey = new KeyDescriptor();
-        $signingKey->setUse('signing');
-
-        $keyInfo = new KeyInfo();
-        $keyInfo->setId('CONEXT-ETS-KEY-SNAKEOIL');
-
-        $keyName = new KeyName();
-        $keyName->setName('snakeoil');
-
-        $x509Data = new X509Data();
-
-        $certificate = new X509Certificate();
-        $certificate->setCertificate(trim(file_get_contents(__DIR__ . '/../Resources/keys/snakeoil.certData')));
-
-        $domElement = new DOMElement('PrivateKey');
-        $domElement->nodeValue = trim(file_get_contents(__DIR__ . '/../Resources/keys/snakeoil.key'));
-
-        $document = new DOMDocument();
-        $document->appendChild($domElement);
-        $privateKeyChunk = new Chunk($domElement);
-
-        $x509Data->setData([$certificate]);
-        $info = [$keyName, $x509Data, $privateKeyChunk];
-        $keyInfo->setInfo($info);
-        $signingKey->setKeyInfo($keyInfo);
-
-        return $signingKey;
+        return [
+            'certData' => XmlSecurity::certificateData(
+                file_get_contents(__DIR__ . '/../Resources/keys/snakeoil.certData')
+            ),
+            'privateKeyPem' => trim(file_get_contents(__DIR__ . '/../Resources/keys/snakeoil.key')),
+        ];
     }
 }

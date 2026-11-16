@@ -36,7 +36,7 @@ use OpenConext\EngineBlock\Metadata\StepupConnections;
 use OpenConext\EngineBlockBundle\Doctrine\Type\LegacyJsonType;
 use OpenConext\EngineBlockBundle\Doctrine\Type\SerializedArrayType;
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 /**
  * @package OpenConext\EngineBlock\Metadata\Entity

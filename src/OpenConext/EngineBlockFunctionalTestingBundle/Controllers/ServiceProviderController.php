@@ -18,18 +18,15 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Controllers;
 
-use DOMDocument;
 use Exception;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\EntityRegistry;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\AuthnRequestFactory;
-use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Compat\Container;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\HttpBinding;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
 use RuntimeException;
-use SAML2\HTTPPost;
-use SAML2\HTTPRedirect;
-use SAML2\Response as SAMLResponse;
-use SAML2\Utils;
+use SimpleSAML\SAML2\XML\samlp\Response as SAMLResponse;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -63,7 +60,7 @@ class ServiceProviderController extends AbstractController
      * @return RedirectResponse
      * @throws \Symfony\Component\HttpKernel\Exception\BadRequestHttpException
      */
-    public function triggerLoginRedirectAction($spName)
+    public function triggerLoginRedirectAction(Request $request, $spName)
     {
         if (!$this->mockSpRegistry->has($spName)) {
             throw new BadRequestHttpException(sprintf('No SP found for "%s"', $spName));
@@ -75,13 +72,19 @@ class ServiceProviderController extends AbstractController
         $factory = new AuthnRequestFactory();
         $authnRequest = $factory->createForRequestFromTo(
             $sp,
-            $this->engineBlock
+            $this->engineBlock,
+            $request->getSchemeAndHttpHost()
         );
 
-        $redirect = new HTTPRedirect();
-        $url = $redirect->getRedirectURL($authnRequest);
+        $url = HttpBinding::redirectUrl(
+            $authnRequest->getDestination(),
+            HttpBinding::PARAMETER_REQUEST,
+            $authnRequest->toXml(),
+            $authnRequest->getRelayState(),
+            $authnRequest->getSigner()
+        );
 
-        if (isset($sp->getEntityDescriptor()->getExtensions()['Malformed'])) {
+        if ($sp->mustSendMalformedAuthnRequest()) {
             $url = str_replace('SAMLRequest', 'AuthNRequest', $url);
         }
 
@@ -93,27 +96,28 @@ class ServiceProviderController extends AbstractController
      * @return Response
      * @throws \Symfony\Component\HttpKernel\Exception\BadRequestHttpException
      */
-    public function triggerLoginPostAction($spName)
+    public function triggerLoginPostAction(Request $request, $spName)
     {
         if (!$this->mockSpRegistry->has($spName)) {
             throw new BadRequestHttpException(sprintf('No SP found for "%s"', $spName));
         }
 
         $factory = new AuthnRequestFactory();
+        /** @var MockServiceProvider $sp */
         $sp = $this->mockSpRegistry->get($spName);
         $authnRequest = $factory->createForRequestFromTo(
             $sp,
-            $this->engineBlock
+            $this->engineBlock,
+            $request->getSchemeAndHttpHost()
         );
 
-        $redirect = new HTTPPost();
-        $redirect->send($authnRequest);
+        $data = [HttpBinding::PARAMETER_REQUEST => base64_encode($authnRequest->toSignedXml())];
+        if ($authnRequest->getRelayState() !== null) {
+            $data[HttpBinding::PARAMETER_RELAY_STATE] = $authnRequest->getRelayState();
+        }
+        $response = HttpBinding::postForm($authnRequest->getDestination(), $data);
 
-        /** @var Container $container */
-        $container = Utils::getContainer();
-        $response = $container->getPostResponse();
-
-        if (isset($sp->getEntityDescriptor()->getExtensions()['Malformed'])) {
+        if ($sp->mustSendMalformedAuthnRequest()) {
             $body = $response->getContent();
             $response->setContent(str_replace('SAMLRequest', 'AuthNRequest', $body));
         }
@@ -129,32 +133,21 @@ class ServiceProviderController extends AbstractController
     public function assertionConsumerAction(Request $request)
     {
         try {
-            $httpPostBinding = new HTTPPost();
-            $message = $httpPostBinding->receive();
-        } catch (Exception $e1) {
-            try {
-                $httpRedirectBinding = new HTTPRedirect();
-                $message = $httpRedirectBinding->receive();
-            } catch (Exception $e2) {
-                throw new RuntimeException('Unable to retrieve SAML message?', 1, $e1);
-            }
+            $message = HttpBinding::receive($request);
+            $element = Saml2Value::documentElement($message['xml']);
+        } catch (Exception $e) {
+            throw new RuntimeException('Unable to retrieve SAML message?', 1, $e);
         }
 
-        if (!$message instanceof SAMLResponse) {
-            throw new RuntimeException(sprintf('Unrecognized message type received: "%s"', get_class($message)));
+        if ($element->localName !== 'Response') {
+            throw new RuntimeException(sprintf('Unrecognized message type received: "%s"', $element->localName));
         }
+        SAMLResponse::fromXML($element);
 
-        $xml = base64_decode($request->request->getString('SAMLResponse') ?: $request->query->getString('SAMLResponse'));
-
-        // Format the XML
-        $doc = new DomDocument('1.0');
-        $doc->preserveWhiteSpace = false;
-        $doc->formatOutput = true;
-        $doc->loadXML($xml);
-        $xml = $doc->saveXML();
+        $xml = $message['xml'];
 
         return new Response(
-            $xml,
+            HttpBinding::formatXml($xml),
             200,
             ['Content-Type' => 'application/xml']
         );
@@ -170,7 +163,7 @@ class ServiceProviderController extends AbstractController
         $mockSp = $this->mockSpRegistry->get($spName);
 
         return new Response(
-            $mockSp->getEntityDescriptor()->toXML()->ownerDocument->saveXML(),
+            Saml2Value::toXmlString($mockSp->getEntityDescriptor()),
             200,
             ['Content-Type' => 'application/xml']
         );

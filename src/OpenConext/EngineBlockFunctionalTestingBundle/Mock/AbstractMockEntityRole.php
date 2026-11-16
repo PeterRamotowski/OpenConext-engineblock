@@ -18,148 +18,113 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\XmlSecurity;
 use RuntimeException;
-use SAML2\XML\ds\X509Certificate;
-use SAML2\XML\ds\X509Data;
-use SAML2\XML\md\EntityDescriptor;
-use SAML2\XML\md\SPSSODescriptor;
-use SAML2\XML\md\SSODescriptorType;
-use SimpleSAML\XML\Chunk;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\EntityIDValue;
+use SimpleSAML\SAML2\Type\KeyTypesValue;
+use SimpleSAML\SAML2\Type\SAMLAnyURIListValue;
+use SimpleSAML\SAML2\XML\md\AbstractRoleDescriptorType;
+use SimpleSAML\SAML2\XML\md\EntityDescriptor;
+use SimpleSAML\SAML2\XML\md\KeyDescriptor;
 
 /**
- * Class AbstractMockEntityRole
- * @package OpenConext\EngineBlockFunctionalTestingBundle\Mock
+ * A mock entity (IdP / SP) with its configuration.
+ *
+ * The configuration is plain data (scalars, arrays, PEM and XML strings) so the mock can be serialized into the
+ * file based DataStore that is shared between the Behat process and the web process.
  */
 abstract class AbstractMockEntityRole
 {
-    protected $name;
-    protected $descriptor;
+    public const KEY_ID = 'CONEXT-ETS-KEY-SNAKEOIL';
+    public const KEY_NAME = 'snakeoil';
 
-    public function __construct(
-        $name,
-        EntityDescriptor $descriptor
-    ) {
+    protected $name;
+
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $config;
+
+    /**
+     * @param array{entityId: string, certData: string, privateKeyPem: string} $config
+     */
+    public function __construct($name, array $config)
+    {
         $this->name = $name;
-        $this->descriptor = $descriptor;
+        $this->config = $config;
     }
 
     public function entityId()
     {
-        return $this->descriptor->getEntityID();
-    }
-
-    public function getEntityDescriptor()
-    {
-        return $this->descriptor;
+        return $this->config['entityId'];
     }
 
     public function setEntityId($entityId)
     {
-        $this->descriptor->setEntityID($entityId);
+        $this->config['entityId'] = $entityId;
         return $this;
     }
 
+    /**
+     * The metadata of the mock entity.
+     */
+    public function getEntityDescriptor(): EntityDescriptor
+    {
+        return new EntityDescriptor(
+            entityId: EntityIDValue::fromString($this->entityId()),
+            roleDescriptor: [$this->buildRoleDescriptor([$this->buildSigningKeyDescriptor()])],
+        );
+    }
+
+    /**
+     * @param KeyDescriptor[] $keyDescriptors
+     */
+    abstract protected function buildRoleDescriptor(array $keyDescriptors): AbstractRoleDescriptorType;
+
+    protected function protocolSupportEnumeration(): SAMLAnyURIListValue
+    {
+        return SAMLAnyURIListValue::fromString(Constants::NS_SAMLP);
+    }
+
+    private function buildSigningKeyDescriptor(): KeyDescriptor
+    {
+        return new KeyDescriptor(
+            XmlSecurity::keyInfo($this->publicKeyCertData(), self::KEY_NAME, self::KEY_ID),
+            KeyTypesValue::fromString('signing'),
+        );
+    }
+
+    /**
+     * The (base64 encoded DER) certificate data, without PEM envelope.
+     */
     public function publicKeyCertData()
     {
-        $role = $this->getSsoRole();
-
-        foreach ($role->getKeyDescriptor()[0]->getKeyInfo()->getInfo() as $info) {
-            if (!$info instanceof X509Data) {
-                continue;
-            }
-
-            foreach ($info->getData() as $data) {
-                if (!$data instanceof X509Certificate) {
-                    continue;
-                }
-
-                return $data->getCertificate();
-            }
+        if (empty($this->config['certData'])) {
+            throw new RuntimeException('Mock entity does not have a certificate');
         }
-        throw new RuntimeException("MockIdp does not have KeyInfo with an X509Certificate");
+
+        return $this->config['certData'];
     }
 
     public function setCertificate($certificateFile)
     {
-        $certData = str_replace(
-            ["-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----", "\n"],
-            '',
-            $this->readFile($certificateFile)
-        );
-
-        $role = $this->getSsoRole();
-
-        foreach ($role->getKeyDescriptor()[0]->getKeyInfo()->getInfo() as $info) {
-            if (!$info instanceof X509Data) {
-                continue;
-            }
-
-            foreach ($info->getData() as $data) {
-                if (!$data instanceof X509Certificate) {
-                    continue;
-                }
-
-                $data->setCertificate($certData);
-                return;
-            }
-        }
-        throw new RuntimeException("MockIdp does not have KeyInfo with an X509Certificate");
+        $this->config['certData'] = XmlSecurity::certificateData($this->readFile($certificateFile));
     }
 
     public function setPrivateKey($privateKeyFile)
     {
-        $role = $this->getSsoRole();
-
-        foreach ($role->getKeyDescriptor()[0]->getKeyInfo()->getInfo() as $info) {
-            if (!$info instanceof Chunk) {
-                continue;
-            }
-
-            if ($info->getLocalName() !== 'PrivateKey') {
-                continue;
-            }
-
-            $info->getXML()->nodeValue = $this->readFile($privateKeyFile);
-            return;
-        }
-
-        throw new RuntimeException("Unable to set private key, no KeyInfo with PrivateKey element set");
+        $this->config['privateKeyPem'] = $this->readFile($privateKeyFile);
     }
 
     public function getPrivateKeyPem()
     {
-        /** @var SPSSODescriptor $spssoRole */
-        $idpSsoRole = $this->getSsoRole();
-
-        /** @var Chunk $certificate */
-        $certificate = array_reduce(
-            $idpSsoRole->getKeyDescriptor()[0]->getKeyInfo()->getInfo(),
-            function ($carry, $info) {
-                return $carry ?: ($info instanceof Chunk ? $info : false);
-            }
-        );
-
-        return $certificate->getXML()->textContent;
-    }
-
-    /**
-     * @return SSODescriptorType
-     * @throws RuntimeException
-     */
-    protected function getSsoRole()
-    {
-        $roleClass = $this->getRoleClass();
-        foreach ($this->descriptor->getRoleDescriptor() as $role) {
-            if (!$role instanceof $roleClass) {
-                continue;
-            }
-
-            return $role;
+        if (empty($this->config['privateKeyPem'])) {
+            throw new RuntimeException('Mock entity does not have a private key');
         }
-        throw new RuntimeException('No IDPSSODescriptor for MockIdentityProvider?');
-    }
 
-    abstract protected function getRoleClass();
+        return $this->config['privateKeyPem'];
+    }
 
     protected function readFile($filePath)
     {

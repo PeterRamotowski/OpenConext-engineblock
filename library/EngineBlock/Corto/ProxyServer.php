@@ -35,14 +35,26 @@ use OpenConext\Value\Saml\Entity;
 use OpenConext\Value\Saml\EntityId;
 use OpenConext\Value\Saml\EntityType;
 use Psr\Log\LoggerInterface;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Constants;
-use SAML2\Response;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\NameID;
-use SAML2\XML\saml\SubjectConfirmation;
-use SAML2\XML\saml\SubjectConfirmationData;
+use OpenConext\EngineBlock\Saml2\Message\AttributeMapper;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\EntityIDValue;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\Type\SAMLStringValue;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\Audience;
+use SimpleSAML\SAML2\XML\saml\AudienceRestriction;
+use SimpleSAML\SAML2\XML\saml\AuthenticatingAuthority;
+use SimpleSAML\SAML2\XML\saml\AuthnContext;
+use SimpleSAML\SAML2\XML\saml\AuthnStatement;
+use SimpleSAML\SAML2\XML\saml\Conditions;
+use SimpleSAML\SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\Subject;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmation;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmationData;
+use SimpleSAML\SAML2\XML\samlp\Response;
+use SimpleSAML\XMLSchema\Type\IDValue;
+use SimpleSAML\XMLSchema\Type\NCNameValue;
 use Twig\Environment;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
@@ -420,13 +432,8 @@ class EngineBlock_Corto_ProxyServer
         $ebRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest($spRequest, $identityProvider, $this);
 
         // Store the authentication state based on the request id and the sp entity id.
-        $spEntityId = $spRequest->getSspMessage()->getIssuer()->getValue();
+        $spEntityId = $spRequest->getIssuerValue();
         $serviceProvider = new Entity(new EntityId($spEntityId), EntityType::SP());
-
-        $sspMessage = $ebRequest->getSspMessage();
-        if (!$sspMessage instanceof AuthnRequest) {
-            throw new EngineBlock_Corto_ProxyServer_Exception(sprintf('Unknown message type: "%s"', get_class($sspMessage)));
-        }
 
         try {
             $originalSpEnitytId = $this->findOriginalServiceProvider($spRequest, $this->_logger)->entityId;
@@ -439,7 +446,7 @@ class EngineBlock_Corto_ProxyServer
         // Add authncontextclassref if configured
         $service = $identityProvider->getCoins()->mfaEntities()->findByEntityId($originalSpEnitytId);
         if ($service instanceof MfaEntity) {
-            $sspMessage->setRequestedAuthnContext([
+            $ebRequest->setRequestedAuthnContext([
                 'AuthnContextClassRef' => [
                     $service->level(),
                 ],
@@ -447,12 +454,12 @@ class EngineBlock_Corto_ProxyServer
         } elseif ($service instanceof TransparentMfaEntity) {
             // When transparent_authn_context is configured, forward the SP AuthnClassRefContext to the IdP
             // See: https://www.pivotaltracker.com/story/show/173305494
-            $sspMessage->setRequestedAuthnContext($spRequest->getRequestedAuthnContext());
+            $ebRequest->setRequestedAuthnContext($spRequest->getRequestedAuthnContext());
         } elseif ($spRequest->getRequestedAuthnContext() === null) {
             // The request didn't have a RequestedAuthnContext set, but we do have a default to fall back to
             $defaultRAC = $identityProvider->getCoins()->defaultRAC();
             if ($defaultRAC !== null) {
-                $sspMessage->setRequestedAuthnContext([
+                $ebRequest->setRequestedAuthnContext([
                     'AuthnContextClassRef' => [
                         $defaultRAC,
                     ],
@@ -497,22 +504,16 @@ class EngineBlock_Corto_ProxyServer
 
         $ebRequest->setForceAuthn($isForceAuthn);
 
-        $sspMessage = $ebRequest->getSspMessage();
-        if (!$sspMessage instanceof AuthnRequest) {
-            throw new EngineBlock_Corto_ProxyServer_Exception(sprintf('Unknown message type: "%s"', get_class($sspMessage)));
-        }
-
         // Add Stepup specific data
-        $sspMessage->setRequestedAuthnContext([
+        $ebRequest->setRequestedAuthnContext([
             'AuthnContextClassRef' => [
                 $authnContextClassRef->getIdentifier()
             ],
-            'Comparison' => Constants::COMPARISON_MINIMUM,
+            'Comparison' => 'minimum',
         ]);
-        $nameIdOverwrite = new NameID();
-        $nameIdOverwrite->setValue($nameId->getValue());
-        $nameIdOverwrite->setFormat(Constants::NAMEID_UNSPECIFIED);
-        $sspMessage->setNameId($nameIdOverwrite);
+        $ebRequest->setNameId(
+            Saml2Value::nameId($nameId->getContent()->getValue(), Constants::NAMEID_UNSPECIFIED)
+        );
 
         // See: UPGRADING.md -> ## 6.13 -> 6.14
         $container = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer();
@@ -537,9 +538,7 @@ class EngineBlock_Corto_ProxyServer
                     $entityIdOverrideValue
                 )
             );
-            $issuer = new Issuer();
-            $issuer->setValue($entityIdOverrideValue);
-            $sspMessage->setIssuer($issuer);
+            $ebRequest->setIssuer($entityIdOverrideValue);
         }
 
         // Add user attributes in the GSSP SAML extension to Stepup Gateway if configured
@@ -550,7 +549,7 @@ class EngineBlock_Corto_ProxyServer
         if ($isSendUserAttributesConfigured && $isSendUserAttributesEnabled) {
             $stepupUserAttributes = $container->getStepupUserAttributes();
             if (!empty($stepupUserAttributes)) {
-                StepupGsspUserAttributeExtension::add($sspMessage, $originalAssertion, $container->getStepupUserAttributes());
+                StepupGsspUserAttributeExtension::add($ebRequest, $originalAssertion, $container->getStepupUserAttributes());
             }
         }
 
@@ -606,11 +605,11 @@ class EngineBlock_Corto_ProxyServer
         if ($receivedRequest->isDebugRequest()) {
             $sp = $this->getEngineSpRole();
         } else {
-            $issuer = $receivedRequest->getIssuer() ? $receivedRequest->getIssuer()->getValue() : '';
+            $issuer = ($receivedRequest->getIssuerValue() ?? '');
             $sp = $this->getRepository()->fetchServiceProviderByEntityId($issuer);
         }
 
-        $issuer = $receivedResponse->getIssuer() ? $receivedResponse->getIssuer()->getValue() : '';
+        $issuer = ($receivedResponse->getIssuerValue() ?? '');
         $idp = $this->getRepository()->fetchIdentityProviderByEntityId($issuer);
 
         // When dealing with an SP that acts as a trusted proxy, we should use the proxying SP and not the proxy itself.
@@ -624,7 +623,7 @@ class EngineBlock_Corto_ProxyServer
         $authnRequestLoas = $receivedRequest->getStepupObligations($loaRepository->getStepUpLoas());
 
         // Get mapped AuthnClassRef and get NameId
-        $nameId = clone $receivedResponse->getNameId();
+        $nameId = $receivedResponse->getNameId();
         $authnClassRef = $this->_diContainer->getStepupGatewayCallOutHelper()->getStepupLoa($idp, $sp, $authnRequestLoas, $pdpLoas);
 
         $this->sendStepupAuthenticationRequest(
@@ -653,13 +652,13 @@ class EngineBlock_Corto_ProxyServer
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $receivedRequest,
     ): bool
     {
-        $issuer = $receivedResponse->getIssuer() ? $receivedResponse->getIssuer()->getValue() : '';
+        $issuer = ($receivedResponse->getIssuerValue() ?? '');
         $idp = $this->getRepository()->fetchIdentityProviderByEntityId($issuer);
 
         if ($receivedRequest->isDebugRequest()) {
             $sp = $this->getEngineSpRole();
         } else {
-            $issuer = $receivedRequest->getIssuer() ? $receivedRequest->getIssuer()->getValue() : '';
+            $issuer = ($receivedRequest->getIssuerValue() ?? '');
             $sp = $this->getRepository()->fetchServiceProviderByEntityId($issuer);
         }
 
@@ -735,7 +734,7 @@ class EngineBlock_Corto_ProxyServer
         $newResponse->setDeliverByBinding('INTERNAL');
         $newResponse->setReturn($this->_server->getUrl('processedAssertionConsumerService'));
 
-        $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId($receivedResponse->getIssuer()->getValue());
+        $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId($receivedResponse->getIssuerValue());
         $identityProvider = new Entity(new EntityId($idp->entityId), EntityType::IdP());
         $authenticationState->authenticatedAt($inResponseTo, $identityProvider);
 
@@ -777,10 +776,7 @@ class EngineBlock_Corto_ProxyServer
     }
 
     /**
-     * @param AuthnRequest|EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request
-     * @param Response|EngineBlock_Saml2_ResponseAnnotationDecorator $sourceResponse
-     *
-     * @return EngineBlock_Saml2_ResponseAnnotationDecorator|Response
+     * @return EngineBlock_Saml2_ResponseAnnotationDecorator
      */
     public function createEnhancedResponse(
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
@@ -789,8 +785,7 @@ class EngineBlock_Corto_ProxyServer
         $newResponse = $this->_createBaseResponse($request);
 
         // We don't support multiple assertions, only use the first one.
-        $sourceAssertions = $sourceResponse->getAssertions();
-        $sourceAssertion = $sourceAssertions[0];
+        $sourceAssertion = $sourceResponse->getAssertion();
 
         // Store the Origin response and issuer (from the IdP)
         $newResponse->setOriginalResponse(
@@ -801,96 +796,108 @@ class EngineBlock_Corto_ProxyServer
         $newResponse->setOriginalIssuer(
             $sourceResponse->getOriginalIssuer() ?
                 $sourceResponse->getOriginalIssuer() :
-                $newResponse->getOriginalResponse()->getIssuer()->getValue()
+                $newResponse->getOriginalResponse()->getIssuerValue()
         );
 
         // Copy over the Status (which should be success)
         $newResponse->setStatus($sourceResponse->getStatus());
 
-        // Create a new assertion by us.
-        $newAssertion = new Assertion();
-        $newResponse->setAssertions(array($newAssertion));
-        $newAssertion->setId($this->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_ASSERTION));
-        $newAssertion->setIssueInstant(time());
-        $newAssertion->setIssuer($newResponse->getIssuer());
-
         // Unless of course we are in 'stealth' / transparent mode, in which case,
         // pretend to be the Identity Provider.
-        $serviceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
         $mustProxyTransparently = ($request->isTransparent() || $serviceProvider->getCoins()->isTransparentIssuer());
         if (!$this->isInProcessingMode() && $mustProxyTransparently) {
-            $issuer = new Issuer();
-            $issuer->setValue($newResponse->getOriginalIssuer());
-            $newResponse->setIssuer($issuer);
-            $newAssertion->setIssuer($issuer);
+            $newResponse->setIssuer($newResponse->getOriginalIssuer());
         }
 
         // Copy over the NameID for now...
         // (further on in the filters we'll have more info and set this to something better)
-        $sourceNameId = $sourceAssertion->getNameId();
-        if ($sourceNameId->getValue() && $sourceNameId->getFormat()) {
-            $newAssertion->setNameId($sourceNameId);
-        }
-
-        // Set up the Subject Confirmation element.
-        $subjectConfirmation = new SubjectConfirmation();
-        $subjectConfirmation->setMethod(Constants::CM_BEARER);
-        $newAssertion->setSubjectConfirmation(array($subjectConfirmation));
-        $subjectConfirmationData = new SubjectConfirmationData();
-        $subjectConfirmation->setSubjectConfirmationData($subjectConfirmationData);
-
-        // Confirm where we are sending it.
-        $subjectConfirmationData->setRecipient($newResponse->getDestination());
-
-        // Confirm that this is in response to their AuthnRequest (unless, you know, it isn't).
-        if (!$request->isUnsolicited()) {
-            /** @var AuthnRequest $request */
-            $subjectConfirmationData->setInResponseTo($request->getId());
-        }
+        $sourceNameId = $sourceAssertion->getSubject()?->getIdentifier();
+        $nameId = $sourceNameId instanceof NameID && $sourceNameId->getFormat() !== null ? $sourceNameId : null;
 
         // Note that it is valid for some 5 minutes.
-        $notOnOrAfter = time() + $this->getConfig('NotOnOrAfter', 300);
-        $newAssertion->setNotBefore(time() - 1);
-        if ($sourceAssertion->getSessionNotOnOrAfter()) {
-            $newAssertion->setSessionNotOnOrAfter($sourceAssertion->getSessionNotOnOrAfter());
-        }
-        $newAssertion->setNotOnOrAfter($notOnOrAfter);
-        $subjectConfirmationData->setNotOnOrAfter($notOnOrAfter);
+        $now = time();
+        $notOnOrAfter = Saml2Value::dateTime($now + $this->getConfig('NotOnOrAfter', 300));
+
+        // Set up the Subject Confirmation element: confirm where we are sending it and that this is in response to
+        // their AuthnRequest (unless, you know, it isn't).
+        $subjectConfirmation = new SubjectConfirmation(
+            SAMLAnyURIValue::fromString(Constants::CM_BEARER),
+            null,
+            new SubjectConfirmationData(
+                null,
+                $notOnOrAfter,
+                EntityIDValue::fromString($newResponse->getDestination()),
+                $request->isUnsolicited() ? null : NCNameValue::fromString($request->getId()),
+            )
+        );
 
         // And only valid for the SP that requested it.
-        $newAssertion->setValidAudiences(array($request->getIssuer()->getValue()));
+        $conditions = new Conditions(
+            Saml2Value::dateTime($now - 1),
+            $notOnOrAfter,
+            [],
+            [new AudienceRestriction([new Audience(SAMLAnyURIValue::fromString($request->getIssuerValue()))])]
+        );
+
+        $assertionId = $this->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_ASSERTION);
+        $statements = [];
 
         // Copy over the Authentication information because the IdP did the authentication, not us.
-        $newAssertion->setAuthnInstant($sourceAssertion->getAuthnInstant());
-        $newAssertion->setSessionIndex($newAssertion->getId());
+        $sourceAuthnStatement = $sourceAssertion->getAuthnStatements()[0] ?? null;
+        $sourceAuthnContext = $sourceAuthnStatement?->getAuthnContext();
+        if ($sourceAuthnContext !== null) {
+            // Copy over the Authenticating Authorities and add the EntityId of the Source Response Issuer.
+            // Note that because EB generates multiple responses, this will likely result in:
+            // "https://engine/../idp/metadata" !== "https://original-idp/../idpmetadata" => true, gets added
+            // "https://engine/../idp/metadata" !== "https://engine/../idp/metadata" => false, does not get added
+            // "https://engine/../idp/metadata" !== "https://engine/../idp/metadata" => false, does not get added
+            $authenticatingAuthorities = $sourceAuthnContext->getAuthenticatingAuthorities();
+            if ($this->getUrl('idpMetadataService') !== $sourceResponse->getIssuerValue()) {
+                $authenticatingAuthorities[] = new AuthenticatingAuthority(
+                    EntityIDValue::fromString($sourceResponse->getIssuerValue())
+                );
+            }
 
-        $newAssertion->setAuthnContextClassRef($sourceAssertion->getAuthnContextClassRef());
-        $newAssertion->setAuthnContextDeclRef($sourceAssertion->getAuthnContextDeclRef());
-        if ($sourceAssertion->getAuthnContextDecl()) {
-            $newAssertion->setAuthnContextDecl($sourceAssertion->getAuthnContextDecl());
+            $statements[] = new AuthnStatement(
+                new AuthnContext(
+                    $sourceAuthnContext->getAuthnContextClassRef(),
+                    $sourceAuthnContext->getAuthnContextDecl(),
+                    $sourceAuthnContext->getAuthnContextDeclRef(),
+                    $authenticatingAuthorities
+                ),
+                $sourceAuthnStatement->getAuthnInstant(),
+                $sourceAuthnStatement->getSessionNotOnOrAfter(),
+                SAMLStringValue::fromString($assertionId)
+            );
         }
-
-        // Copy over the Authenticating Authorities and add the EntityId of the Source Response Issuer.
-        // Note that because EB generates multiple responses, this will likely result in:
-        // "https://engine/../idp/metadata" !== "https://original-idp/../idpmetadata" => true, gets added
-        // "https://engine/../idp/metadata" !== "https://engine/../idp/metadata" => false, does not get added
-        // "https://engine/../idp/metadata" !== "https://engine/../idp/metadata" => false, does not get added
-
-        $authenticatingAuthorities = $sourceAssertion->getAuthenticatingAuthority();
-        if ($this->getUrl('idpMetadataService') !== $sourceResponse->getIssuer()->getValue()) {
-            $authenticatingAuthorities[] = $sourceResponse->getIssuer()->getValue();
-        }
-        $newAssertion->setAuthenticatingAuthority($authenticatingAuthorities);
 
         // Copy over the attributes
-        $newAssertion->setAttributes($sourceAssertion->getAttributes());
-        $newAssertion->setAttributeNameFormat(Constants::NAMEFORMAT_URI);
+        $attributeStatement = AttributeMapper::toStatement(
+            AttributeMapper::toFlat($sourceAssertion),
+            Constants::NAMEFORMAT_URI
+        );
+        if ($attributeStatement !== null) {
+            $statements[] = $attributeStatement;
+        }
+
+        // Create a new assertion by us.
+        $newAssertion = new Assertion(
+            $newResponse->getIssuer(),
+            Saml2Value::dateTime($now),
+            IDValue::fromString($assertionId),
+            new Subject($nameId, [$subjectConfirmation]),
+            $conditions,
+            $statements
+        );
+        $newResponse->setAssertions([$newAssertion]);
 
         return $newResponse;
     }
 
     /**
      * @param EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request
+     * @return EngineBlock_Saml2_ResponseAnnotationDecorator
      */
     protected function _createBaseResponse(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request)
     {
@@ -899,24 +906,18 @@ class EngineBlock_Corto_ProxyServer
         }
         $requestWasUnsolicited = $request->isUnsolicited();
 
-        $response = new Response();
-        /** @var AuthnRequest $request */
-        $response->setRelayState($request->getRelayState());
-        $response->setId($this->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_RESPONSE));
-        $response->setIssueInstant(time());
-        if (!$requestWasUnsolicited) {
-            $response->setInResponseTo($request->getId());
-        }
-        $response->setDestination($request->getIssuer()->getValue());
-        $issuer = new Issuer();
-        $issuer->setValue($this->getUrl('idpMetadataService', $request->getIssuer()->getValue()));
-        $response->setIssuer($issuer);
-
         $acs = $this->getRequestAssertionConsumer($request);
-        $response->setDestination($acs->location);
-        $response->setStatus(array('Code' => Constants::STATUS_SUCCESS));
 
-        $response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        $response = new Response(
+            IDValue::fromString($this->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_RESPONSE)),
+            EngineBlock_Saml2_ResponseAnnotationDecorator::createStatus(['Code' => Constants::STATUS_SUCCESS]),
+            Saml2Value::dateTime(time()),
+            Saml2Value::issuer($this->getUrl('idpMetadataService', $request->getIssuerValue())),
+            $requestWasUnsolicited ? null : NCNameValue::fromString($request->getId()),
+            SAMLAnyURIValue::fromString($acs->location),
+        );
+
+        $response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response, $request->getRelayState());
         $response->setDeliverByBinding($acs->binding);
         return $response;
     }
@@ -930,8 +931,7 @@ class EngineBlock_Corto_ProxyServer
      */
     public function getRequestAssertionConsumer(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request)
     {
-        /** @var AuthnRequest $request */
-        $serviceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
 
         // parse and validate custom ACS location
         $custom = $this->getCustomAssertionConsumer($request, $serviceProvider);
@@ -981,7 +981,6 @@ class EngineBlock_Corto_ProxyServer
     ) {
         $requestWasSigned = $request->wasSigned();
 
-        /** @var AuthnRequest $request */
 
         // Ignore requests for bindings we don't support for responses.
         $protocolBinding = $request->getProtocolBinding();
@@ -1068,12 +1067,10 @@ class EngineBlock_Corto_ProxyServer
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
         EngineBlock_Saml2_ResponseAnnotationDecorator $response
     ) {
-        /** @var AuthnRequest $request */
-        $requestIssuer = $request->getIssuer() ? $request->getIssuer()->getValue() : '';
+        $requestIssuer = ($request->getIssuerValue() ?? '');
         $serviceProvider = $this->getRepository()->fetchServiceProviderByEntityId($requestIssuer);
 
         // Detect error responses and send them off without an assertion.
-        /** @var Response $response */
         $status = $response->getStatus();
         if ($status['Code'] !== 'urn:oasis:names:tc:SAML:2.0:status:Success') {
             $response->setAssertions(array());
@@ -1094,7 +1091,6 @@ class EngineBlock_Corto_ProxyServer
      */
     public function getReceivedRequestFromResponse(EngineBlock_Saml2_ResponseAnnotationDecorator $response)
     {
-        /** @var Response $response */
         $requestId = $response->getInResponseTo();
         if ($requestId === null) {
             throw new EngineBlock_Corto_ProxyServer_Exception(
@@ -1143,8 +1139,8 @@ class EngineBlock_Corto_ProxyServer
             array(new EngineBlock_Corto_Filter_Input($this), 'filter'),
             $response,
             $request,
-            $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue()),
-            $this->getRepository()->fetchIdentityProviderByEntityId($response->getIssuer()->getValue())
+            $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue()),
+            $this->getRepository()->fetchIdentityProviderByEntityId($response->getIssuerValue())
         );
     }
 
@@ -1156,7 +1152,7 @@ class EngineBlock_Corto_ProxyServer
             array(new EngineBlock_Corto_Filter_Output($this), 'filter'),
             $response,
             $request,
-            $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue()),
+            $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue()),
             $this->getRepository()->fetchIdentityProviderByEntityId($response->getOriginalIssuer())
         );
     }
@@ -1169,7 +1165,7 @@ class EngineBlock_Corto_ProxyServer
         IdentityProvider $idpEntityMetadata
     ) {
         // Take em out
-        $responseAttributes = $response->getAssertion()->getAttributes();
+        $responseAttributes = $response->getAttributes();
 
         // Call the filter
         call_user_func_array(
@@ -1178,7 +1174,7 @@ class EngineBlock_Corto_ProxyServer
         );
 
         // Put em back where they belong
-        $response->getAssertion()->setAttributes($responseAttributes);
+        $response->setAttributes($responseAttributes);
     }
 
 //////// I/O /////////
@@ -1234,7 +1230,7 @@ class EngineBlock_Corto_ProxyServer
      */
     public function checkResponseSignatureMethods(EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse)
     {
-        $issuer = $receivedResponse->getIssuer()->getValue();
+        $issuer = $receivedResponse->getIssuerValue();
         $log = EngineBlock_ApplicationSingleton::getInstance()
             ->getLogInstance();
 
@@ -1243,7 +1239,7 @@ class EngineBlock_Corto_ProxyServer
                 'Received Assertion from Issuer "%s" with signature method algorithms Response: "%s" and Assertion: "%s"',
                 $issuer,
                 $receivedResponse->getSignatureMethod(),
-                $receivedResponse->getAssertion()->getSignatureMethod()
+                $receivedResponse->getAssertionSignatureMethod()
             )
         );
 
@@ -1251,8 +1247,8 @@ class EngineBlock_Corto_ProxyServer
             $this->assertSignatureMethodIsAllowed($receivedResponse->getSignatureMethod());
         }
 
-        if ($receivedResponse->getAssertion()->getSignatureMethod() !== null) {
-            $this->assertSignatureMethodIsAllowed($receivedResponse->getAssertion()->getSignatureMethod());
+        if ($receivedResponse->getAssertionSignatureMethod() !== null) {
+            $this->assertSignatureMethodIsAllowed($receivedResponse->getAssertionSignatureMethod());
         }
     }
 
@@ -1340,7 +1336,7 @@ class EngineBlock_Corto_ProxyServer
         LoggerInterface $logger
     ) {
 
-        $issuingServiceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $issuingServiceProvider = $this->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
 
         // Find the original requester SP
         $originalRequesterServiceProvider = EngineBlock_SamlHelper::findRequesterServiceProvider(

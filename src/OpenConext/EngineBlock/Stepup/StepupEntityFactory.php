@@ -24,7 +24,7 @@ use OpenConext\EngineBlock\Metadata\IndexedService;
 use OpenConext\EngineBlock\Metadata\Mdui;
 use OpenConext\EngineBlock\Metadata\Service;
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 class StepupEntityFactory
 {

@@ -18,19 +18,32 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Saml2;
 
+use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
+use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAMLAuthnRequest;
-use SAML2\EncryptedAssertion;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\SubjectConfirmation;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\Conditions;
+use SimpleSAML\SAML2\XML\saml\Subject;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmation;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmationData;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SamlAuthnRequest;
+use SimpleSAML\SAML2\Type\SAMLDateTimeValue;
+use SimpleSAML\XMLSchema\Type\NCNameValue;
 
 class ResponseFactory
 {
+    /**
+     * Create the Response of the mock IdP to the given AuthnRequest, based on the mock IdP's template Response.
+     */
     public function createForEntityWithRequest(
         MockIdentityProvider $mockIdp,
-        SAMLAuthnRequest $request
-    ) {
+        SamlAuthnRequest|EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request
+    ): Response {
+        if ($request instanceof EngineBlock_Saml2_AuthnRequestAnnotationDecorator) {
+            $request = $request->getSspMessage();
+        }
+
         // Note that we expect the Mock IdP to always have a 'template' Response.
         $response = $mockIdp->getResponse();
 
@@ -46,6 +59,10 @@ class ResponseFactory
 
         $this->setResponseIssuer($mockIdp, $response);
 
+        if ($mockIdp->getAuthnContextClassRef() !== null) {
+            $response->setAuthnContextClassRef($mockIdp->getAuthnContextClassRef());
+        }
+
         $this->encryptAssertions($mockIdp, $response);
 
         if ($mockIdp->shouldNotSendAssertions()) {
@@ -54,40 +71,58 @@ class ResponseFactory
 
         if ($mockIdp->shouldTurnBackTheTime()) {
             // Set the timestamp to Unix Epoch
-            $response->getAssertions()[0]->setNotOnOrAfter(0);
+            $this->setConditionsTimes($response, notOnOrAfter: Saml2Value::dateTime(0));
         }
 
         if ($mockIdp->isFromTheFuture()) {
-            // Set the timestamp to current time + i year
-            $response->getAssertions()[0]->setNotBefore(strtotime(date('Y-m-d H:i:s', strtotime('+1 year'))));
+            // Set the timestamp to current time + 1 year
+            $this->setConditionsTimes($response, notBefore: Saml2Value::dateTime(strtotime('+1 year')));
         }
 
         return $response;
     }
 
-    /**
-     * @param SAMLAuthnRequest $request
-     * @param $response
-     */
-    private function setResponseReferencesToRequest(SAMLAuthnRequest $request, Response $response)
+    private function setResponseReferencesToRequest(SamlAuthnRequest $request, Response $response): void
     {
-        $response->setInResponseTo($request->getId());
-        $assertions = $response->getAssertions();
-        /** @var SubjectConfirmation[] $subjectConfirmations */
-        $subjectConfirmations = $assertions[0]->getSubjectConfirmation();
+        $requestId = $request->getId()->getValue();
+        $response->setInResponseTo($requestId);
 
-        foreach ($subjectConfirmations as $subjectConfirmation) {
-            $subjectConfirmation->getSubjectConfirmationData()->setInResponseTo($request->getId());
+        $assertions = $response->getAssertions();
+        if (!isset($assertions[0]) || !$assertions[0] instanceof Assertion) {
+            return;
         }
 
-        $assertions[0]->setSubjectConfirmation($subjectConfirmations);
+        $subject = $assertions[0]->getSubject();
+        if ($subject === null) {
+            return;
+        }
+
+        $subjectConfirmations = array_map(
+            static function (SubjectConfirmation $subjectConfirmation) use ($requestId): SubjectConfirmation {
+                $data = $subjectConfirmation->getSubjectConfirmationData();
+                return new SubjectConfirmation(
+                    $subjectConfirmation->getMethod(),
+                    $subjectConfirmation->getIdentifier(),
+                    new SubjectConfirmationData(
+                        $data?->getNotBefore(),
+                        $data?->getNotOnOrAfter(),
+                        $data?->getRecipient(),
+                        NCNameValue::fromString($requestId),
+                        $data?->getAddress(),
+                        $data?->getElements() ?? [],
+                        $data?->getAttributesNS() ?? [],
+                    ),
+                );
+            },
+            $subject->getSubjectConfirmation()
+        );
+
+        $response->setAssertion(MessageRebuilder::assertion($assertions[0], [
+            'subject' => new Subject($subject->getIdentifier(), $subjectConfirmations),
+        ]));
     }
 
-    /**
-     * @param MockIdentityProvider $mockIdp
-     * @param Response $response
-     */
-    private function setResponseStatus(MockIdentityProvider $mockIdp, Response $response)
+    private function setResponseStatus(MockIdentityProvider $mockIdp, Response $response): void
     {
         $responseStatus = $response->getStatus();
 
@@ -113,48 +148,55 @@ class ResponseFactory
         $response->setStatus($statusOverride);
     }
 
-    /**
-     * @param MockIdentityProvider $mockIdp
-     * @param $response
-     */
-    private function setResponseSignatureKey(MockIdentityProvider $mockIdp, Response $response)
+    private function setResponseSignatureKey(MockIdentityProvider $mockIdp, Response $response): void
     {
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $key->loadKey($mockIdp->getPrivateKeyPem());
+        $signer = XmlSecurity::signer($mockIdp->getPrivateKeyPem(), $mockIdp->getSignatureMethod());
 
         if ($mockIdp->mustSignResponses()) {
-            $response->setSignatureKey($key);
+            $response->setResponseSigner($signer);
         }
 
         if ($mockIdp->mustSignAssertions()) {
-            $assertions = $response->getAssertions();
-            foreach ($assertions as $assertion) {
-                $assertion->setSignatureKey($key);
-            }
+            $response->setAssertionSigner($signer);
         }
     }
 
-    private function setResponseIssuer(MockIdentityProvider $mockIdp, Response $response)
+    private function setResponseIssuer(MockIdentityProvider $mockIdp, Response $response): void
     {
-        $issuer = new Issuer();
-        $issuer->setValue($mockIdp->entityId());
-        $response->setIssuer($issuer);
+        $response->setIssuer($mockIdp->entityId());
     }
 
-    private function encryptAssertions(MockIdentityProvider $mockIdp, Response $response)
+    private function encryptAssertions(MockIdentityProvider $mockIdp, Response $response): void
     {
-        $encryptionKey = $mockIdp->getEncryptionKey();
-        if (!$encryptionKey) {
+        $certificate = $mockIdp->getEncryptionCertificate();
+        $sharedKey = $mockIdp->getEncryptionSharedKey();
+        if ($certificate === null && $sharedKey === null) {
             return;
         }
 
-        $encryptedAssertions = [];
+        $response->encryptAssertions($certificate, $sharedKey);
+    }
+
+    private function setConditionsTimes(
+        Response $response,
+        ?SAMLDateTimeValue $notBefore = null,
+        ?SAMLDateTimeValue $notOnOrAfter = null
+    ): void {
         $assertions = $response->getAssertions();
-        foreach ($assertions as $assertion) {
-            $encryptedAssertion = new EncryptedAssertion();
-            $encryptedAssertion->setAssertion($assertion, $encryptionKey);
-            $encryptedAssertions[] = $encryptedAssertion;
+        if (!isset($assertions[0]) || !$assertions[0] instanceof Assertion) {
+            return;
         }
-        $response->setAssertions($encryptedAssertions);
+
+        $conditions = $assertions[0]->getConditions();
+        $response->setAssertion(MessageRebuilder::assertion($assertions[0], [
+            'conditions' => new Conditions(
+                $notBefore ?? $conditions?->getNotBefore(),
+                $notOnOrAfter ?? $conditions?->getNotOnOrAfter(),
+                $conditions?->getCondition() ?? [],
+                $conditions?->getAudienceRestriction() ?? [],
+                $conditions?->getOneTimeUse(),
+                $conditions?->getProxyRestriction(),
+            ),
+        ]));
     }
 }

@@ -26,7 +26,7 @@ use OpenConext\EngineBlockBundle\Authentication\Service\SamlResponseHelper;
 use OpenConext\EngineBlockBundle\Configuration\ErrorFeedbackConfigurationInterface;
 use OpenConext\EngineBlockBundle\Value\FeedbackInformation;
 use OpenConext\EngineBlockBundle\Value\FeedbackInformationMap;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\XML\saml\Issuer;
 use Twig\Attribute\AsTwigFunction;
 
 class Feedback
@@ -214,7 +214,7 @@ class Feedback
                     continue;
                 }
                 if ($value instanceof Issuer) {
-                    $value = $value->getValue();
+                    $value = $value->getContent()->getValue();
                 }
                 if ($key === 'AuthnFailedResponse') {
                     // Don't show the AuthnFailedResponse base64 encoded response message in the feedback info table

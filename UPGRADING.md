@@ -1,5 +1,14 @@
 # UPGRADE NOTES
 
+## Unreleased
+
+EngineBlock now uses saml2 v7 for its SAML messages. Session state written by earlier releases cannot be read and is
+discarded: users who are in the middle of a login during the upgrade see the "session lost" page and must restart.
+
+- Add `session_cookie_name` to `parameters.yaml`, suggested value: `engineblock_session_v7`. Earlier releases used the
+  fixed cookie name `main`. Use a fresh name for every rollback and roll forward; see
+  [docs/session_cutover.md](docs/session_cutover.md) for the cutover and rollback procedure.
+
 ## 7.2.0
 
 Engineblock is now upgraded to Symfony 7.4 and requires PHP 8.5. Older PHP versions might work, but have not been tested.

@@ -37,6 +37,9 @@ use SAML2\Message;
 use SAML2\Response;
 use SAML2\Signature\PublicKeyValidator;
 use SAML2\Utils;
+use SimpleSAML\SAML2\XML\samlp\AbstractMessage as V7Message;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as V7AuthnRequest;
+use SimpleSAML\SAML2\XML\samlp\Response as V7Response;
 use Twig\Environment;
 
 /**
@@ -183,7 +186,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         EngineBlock_ApplicationSingleton::getInstance()->getDiContainerRuntime()->feedbackStateHelper->startNewFlow(
             $ebRequest->getId(),
-            $ebRequest->getIssuer()->getValue()
+            ($ebRequest->getIssuerValue() ?? '')
         );
 
         // Verify that we know this SP and have metadata for it.
@@ -425,7 +428,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
                 // If this is a transparent MFA authentication, we want to forward the error response
                 $originalRequest = $this->_server->findRequestFromRequestId($sspResponse->getInResponseTo());
-                $originalSpIssuer = $originalRequest->getIssuer()->getValue();
+                $originalSpIssuer = ($originalRequest->getIssuerValue() ?? '');
                 $mfaHelper = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getMfaHelper();
                 $isMfaTransparentSp = $mfaHelper->isTransparent($originalSpIssuer, $idpEntityId->getValue());
                 if ($isMfaTransparentSp) {
@@ -664,11 +667,12 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
                 $return = $message->getReturn();
             }
 
-            $relayState = $sspMessage->getRelayState() ?: null;
+            // RelayState is transport state kept on the EngineBlock adapter, not in the protocol element.
+            $relayState = $message->getRelayState() ?: null;
 
             $encodedMessage = base64_encode($xml);
 
-            $action = $sspMessage->getDestination();
+            $action = $message->getDestination();
 
             $log = $this->_server->getLogger();
             $log->info('HTTP-Post: Sending Message', array('saml_message' => $xml));
@@ -752,13 +756,13 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         return $url;
     }
 
-    protected function shouldMessageBeSigned(Message $sspMessage, AbstractRole $remoteEntity)
+    protected function shouldMessageBeSigned(V7Message $sspMessage, AbstractRole $remoteEntity)
     {
-        if ($sspMessage instanceof Response) {
+        if ($sspMessage instanceof V7Response) {
             return true;
         }
 
-        if (!$sspMessage instanceof AuthnRequest) {
+        if (!$sspMessage instanceof V7AuthnRequest) {
             throw new EngineBlock_Corto_Module_Bindings_Exception(
                 sprintf('Unsupported Message type: "%s"', get_class($sspMessage))
             );
@@ -821,7 +825,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $name = $message->getMessageType();
         $this->_internalBindingMessages[$name] = $message;
 
-        /** @var Message $message */
         $destinationLocation = $message->getDestination();
         $parameters = $this->_server->getParametersFromUrl($destinationLocation);
         if (isset($parameters['RemoteIdPMd5'])) {

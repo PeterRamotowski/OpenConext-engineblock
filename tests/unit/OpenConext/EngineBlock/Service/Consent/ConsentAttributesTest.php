@@ -19,7 +19,7 @@
 namespace OpenConext\EngineBlock\Service\Consent;
 
 use PHPUnit\Framework\TestCase;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 
 class ConsentAttributesTest extends TestCase
 {
@@ -308,9 +308,10 @@ class ConsentAttributesTest extends TestCase
 
     public function test_with_values_handles_nameid_objects(): void
     {
-        $nameId = new NameID();
-        $nameId->setValue('83aa0a79363edcf872c966b0d6eaf3f5e26a6a77');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:2.0:nameid-format:persistent');
+        $nameId = Saml2Value::nameId(
+            '83aa0a79363edcf872c966b0d6eaf3f5e26a6a77',
+            'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent',
+        );
 
         $attributes = [
             'urn:mace:dir:attribute-def:uid'              => ['joe-f12'],
@@ -320,6 +321,14 @@ class ConsentAttributesTest extends TestCase
         // Must not throw and must return a non-empty string
         $compareValue = ConsentAttributes::withValues($attributes)->getCompareValue();
         $this->assertNotEmpty($compareValue);
+
+        // Stored consent hashes were computed from this array shape; it must not change
+        $legacyShape = $attributes;
+        $legacyShape['urn:mace:dir:attribute-def:eduPersonTargetedID'] = [[
+            'value' => '83aa0a79363edcf872c966b0d6eaf3f5e26a6a77',
+            'Format' => 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent',
+        ]];
+        $this->assertSame($compareValue, ConsentAttributes::withValues($legacyShape)->getCompareValue());
     }
 
     // -------------------------------------------------------------------------
@@ -466,9 +475,10 @@ class ConsentAttributesTest extends TestCase
     {
         // Under namesOnly the NameID object is still normalised (to avoid errors
         // in the normalise pipeline), but only the outer attribute key is used.
-        $nameId = new NameID();
-        $nameId->setValue('83aa0a79363edcf872c966b0d6eaf3f5e26a6a77');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:2.0:nameid-format:persistent');
+        $nameId = Saml2Value::nameId(
+            '83aa0a79363edcf872c966b0d6eaf3f5e26a6a77',
+            'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent',
+        );
 
         $attributes = [
             'urn:mace:dir:attribute-def:uid'                 => ['joe-f12'],

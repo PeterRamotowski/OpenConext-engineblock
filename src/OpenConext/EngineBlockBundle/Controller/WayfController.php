@@ -120,7 +120,7 @@ class WayfController
 
     private function getCookies(): array
     {
-        $cookies = ['main', 'rememberchoice', RememberedIdpCookie::NAME, 'lang', 'selectedidps'];
+        $cookies = [$this->engineBlockApplicationSingleton->getDiContainer()->getSessionCookieName(), 'rememberchoice', RememberedIdpCookie::NAME, 'lang', 'selectedidps'];
 
         if ($this->engineBlockApplicationSingleton->getDiContainer()->getFeatureConfiguration()
             ->hasFeature("eb.enable_sso_session_cookie")) {

@@ -74,7 +74,7 @@ class EngineBlock_Application_Bootstrapper
             $settings->getCookieUseSecure(),
             true
         );
-        session_name('main');
+        session_name($settings->getSessionCookieName());
     }
 
     protected function _bootstrapHttpCommunication()
