@@ -16,8 +16,6 @@
  * limitations under the License.
  */
 
-use SAML2\Compat\ContainerSingleton;
-
 class EngineBlock_Application_Bootstrapper
 {
     const P3P_HEADER = 'CP="IDC DSP COR ADM DEVi TAIi PSA PSD IVAi IVDi CONi HIS OUR IND CNT"';
@@ -59,7 +57,6 @@ class EngineBlock_Application_Bootstrapper
         $this->_bootstrapErrorReporting();
 
         $this->_bootstrapHttpCommunication();
-        $this->_bootstrapSaml2();
 
         $this->_bootstrapped = true;
 
@@ -105,12 +102,6 @@ class EngineBlock_Application_Bootstrapper
         // workaround, P3P is needed to support iframes like iframe gadgets in portals
         $response->setHeader('P3P', self::P3P_HEADER);
         $this->_application->setHttpResponse($response);
-    }
-
-    private function _bootstrapSaml2()
-    {
-        $container = new EngineBlock_Saml2_Container($this->_application->getLogInstance());
-        ContainerSingleton::setContainer($container);
     }
 
     protected function _bootstrapPhpSettings()

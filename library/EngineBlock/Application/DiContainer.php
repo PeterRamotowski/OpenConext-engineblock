@@ -20,6 +20,10 @@ use Doctrine\ORM\EntityManager;
 use OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory;
 use OpenConext\EngineBlock\Metadata\LoaRepository;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
+use OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier;
+use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
+use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
+use OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor;
 use OpenConext\EngineBlock\Service\MfaHelperInterface;
 use OpenConext\EngineBlock\Service\ReleaseAsEnforcer;
 use OpenConext\EngineBlock\Service\TimeProvider\TimeProviderInterface;
@@ -28,6 +32,9 @@ use OpenConext\EngineBlock\Stepup\StepupGatewayCallOutHelper;
 use OpenConext\EngineBlock\Validator\AllowedSchemeValidator;
 use OpenConext\EngineBlockBundle\Sbs\SbsAttributeMerger;
 use OpenConext\EngineBlockBundle\Sbs\SbsClientInterface;
+use Surfnet\SamlBundle\Http\PostBinding;
+use Surfnet\SamlBundle\Http\RedirectBinding;
+use Surfnet\SamlBundle\Service\SigningService;
 use Symfony\Component\DependencyInjection\ContainerInterface as SymfonyContainerInterface;
 use Symfony\Component\Mailer\MailerInterface;
 
@@ -609,5 +616,40 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     public function getAuthnRequestSessionRepository(): EngineBlock_Saml2_AuthnRequestSessionRepository
     {
         return $this->container->get(EngineBlock_Saml2_AuthnRequestSessionRepository::class);
+    }
+
+    public function getSamlRedirectBinding(): RedirectBinding
+    {
+        return $this->container->get('engineblock.saml_bundle.redirect_binding');
+    }
+
+    public function getSamlPostBinding(): PostBinding
+    {
+        return $this->container->get('engineblock.saml_bundle.post_binding');
+    }
+
+    public function getSamlRedirectSignatureVerifier(): RedirectSignatureVerifier
+    {
+        return $this->container->get(RedirectSignatureVerifier::class);
+    }
+
+    public function getSamlVerifiedResponseProcessor(): VerifiedResponseProcessor
+    {
+        return $this->container->get(VerifiedResponseProcessor::class);
+    }
+
+    public function getSamlSignerFactory(): SignerFactory
+    {
+        return $this->container->get(SignerFactory::class);
+    }
+
+    public function getSamlUnsignedRedirectEncoder(): UnsignedRedirectEncoder
+    {
+        return $this->container->get(UnsignedRedirectEncoder::class);
+    }
+
+    public function getSamlSigningService(): SigningService
+    {
+        return $this->container->get('engineblock.saml_bundle.signing_service');
     }
 }

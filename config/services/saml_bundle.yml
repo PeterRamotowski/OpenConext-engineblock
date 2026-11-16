@@ -1,0 +1,38 @@
+# EngineBlock adapters around the SurfnetSamlBundle and the public aliases through which the legacy DI facade
+# (EngineBlock_Application_DiContainer) reaches bundle services.
+services:
+    _defaults:
+        public: true
+
+    OpenConext\EngineBlock\Saml2\Bundle\ServiceProviderRepositoryAdapter:
+        public: false
+        arguments:
+            - '@OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface'
+
+    OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier:
+        public: false
+        arguments:
+            - '@logger'
+
+    OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor:
+        arguments:
+            - '@surfnet_saml.saml2.response_processor'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier'
+
+    OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier:
+        arguments:
+            - '@logger'
+            - '%forbidden_signature_methods%'
+
+    OpenConext\EngineBlock\Saml2\Bundle\SignerFactory:
+
+    OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder:
+
+    engineblock.saml_bundle.redirect_binding:
+        alias: surfnet_saml.http.redirect_binding
+
+    engineblock.saml_bundle.post_binding:
+        alias: surfnet_saml.http.post_binding
+
+    engineblock.saml_bundle.signing_service:
+        alias: surfnet_saml.signing_service

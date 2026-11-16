@@ -1,0 +1,18 @@
+# The bundle's hosted identity provider mirrors EngineBlock's IdP identity: its entityID (metadata URL), SSO
+# endpoint and "default" key from the encryption_keys parameter. It is enabled so the bundle's incoming request
+# bindings look up SPs in EngineBlock's metadata repository. EngineBlock keeps serving its own metadata, routes
+# and firewalls; the bundle registers none of these (enable_authentication stays false).
+surfnet_saml:
+    hosted:
+        metadata:
+            entity_id_route: metadata_idp
+            public_key: '%engineblock.saml_bundle.default_public_key_file%'
+            private_key: '%engineblock.saml_bundle.default_private_key_file%'
+        identity_provider:
+            enabled: true
+            service_provider_repository: OpenConext\EngineBlock\Saml2\Bundle\ServiceProviderRepositoryAdapter
+            sso_route: authentication_idp_sso
+            public_key: '%engineblock.saml_bundle.default_public_key_file%'
+            private_key: '%engineblock.saml_bundle.default_private_key_file%'
+    private_key_agent:
+        enabled: false
