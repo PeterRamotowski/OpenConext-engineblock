@@ -28,8 +28,11 @@ use Symfony\Component\HttpKernel\Event\ResponseEvent;
  *
  * Every session written by this release carries a namespace marker. A session presented without the expected
  * marker (a reused cookie name, a rollback, or a release with another serialization format) is invalidated before
- * any authentication state is read, so in-flight flows restart through the existing session-lost feedback instead
- * of deserializing PHP objects across releases.
+ * EngineBlock uses any authentication state from it.
+ *
+ * This is an additional check only: PHP has already deserialized the session data when the marker is read, so it
+ * does not prevent cross-version deserialization. That requires separate or purged session storage, plus a fresh
+ * session cookie name for a cutover or roll forward (docs/session_cutover.md).
  */
 final class SessionNamespaceListener
 {

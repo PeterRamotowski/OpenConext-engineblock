@@ -2,12 +2,15 @@
 
 ## Unreleased
 
-EngineBlock now uses saml2 v7 for its SAML messages. Session state written by earlier releases cannot be read and is
-discarded: users who are in the middle of a login during the upgrade see the "session lost" page and must restart.
+EngineBlock now uses saml2 v7 for its SAML messages. Session state written by earlier releases cannot be used: users
+who are in the middle of a login during the upgrade must restart it.
 
 - Add `session_cookie_name` to `parameters.yaml`, suggested value: `engineblock_session_v7`. Earlier releases used the
-  fixed cookie name `main`. Use a fresh name for every rollback and roll forward; see
-  [docs/session_cutover.md](docs/session_cutover.md) for the cutover and rollback procedure.
+  fixed cookie name `main`.
+- The upgrade, a rollback and every roll forward require separate or purged session storage. The upgrade and every
+  roll forward also require a fresh cookie name; a rollback keeps `main`. PHP deserializes session data before
+  EngineBlock can check it, so a new cookie name alone does not keep releases apart. See
+  [docs/session_cutover.md](docs/session_cutover.md).
 
 ## 7.2.0
 

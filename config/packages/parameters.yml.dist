@@ -145,8 +145,9 @@ parameters:
     ## Minimum execution time in milliseconds when a received response is deemed invalid (default: 5000 ms)
     minimum_execution_time_on_invalid_received_response: 5000
 
-    ## Name of the session cookie. Use a fresh name for every release that changes the stored session format and
-    ## for a rollback, so sessions are never shared between releases. See docs/session_cutover.md
+    ## Name of the session cookie. A cutover or roll forward to a release that changes the stored session format
+    ## needs a fresh name and separate or purged session storage; a rollback needs separate or purged storage.
+    ## See docs/session_cutover.md
     session_cookie_name: engineblock_session_v7
 
     ## Language cookie settings
