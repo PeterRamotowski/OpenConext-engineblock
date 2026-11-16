@@ -15,8 +15,15 @@
         "issues": "https://github.com/OpenConext/OpenConext-engineblock/issues",
         "source": "https://github.com/OpenConext/OpenConext-engineblock"
     },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/PeterRamotowski/Stepup-saml-bundle.git"
+        }
+    ],
     "require": {
         "php": "^8.5",
+        "ext-bcmath": "*",
         "ext-dom": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
@@ -25,6 +32,7 @@
         "ext-zlib": "*",
         "beberlei/assert": "^3.3.3",
         "composer/package-versions-deprecated": "^1.11",
+        "cweagans/composer-patches": "^2.0",
         "doctrine/dbal": "^4.3.3",
         "doctrine/doctrine-bundle": "^2.13.3",
         "doctrine/doctrine-migrations-bundle": "^3.6.0",
@@ -37,8 +45,11 @@
         "pimple/pimple": "^3.6",
         "ramsey/uuid": "^4.9.1",
         "robrichards/xmlseclibs": "^3.1.3",
-        "simplesamlphp/assert": "^2.0",
-        "simplesamlphp/saml2-legacy": "^4.20",
+        "simplesamlphp/assert": "^3.0",
+        "simplesamlphp/saml2": "7.0.0-rc4",
+        "simplesamlphp/xml-common": "^3.0",
+        "simplesamlphp/xml-security": "^3.1",
+        "surfnet/stepup-saml-bundle": "dev-feature/saml2-v7-pka#60f2bfe2e482f30215bded6b3953c2af44e94b06",
         "symfony/asset": "^7.4",
         "symfony/console": "^7.4",
         "symfony/dotenv": "^7.4",
@@ -58,7 +69,6 @@
         "behat/behat": "^3.26",
         "behat/mink": "^1.12",
         "behat/mink-browserkit-driver": "^2.2",
-        "cweagans/composer-patches": "^2.0",
         "dmore/behat-chrome-extension": "^1.4",
         "dmore/chrome-mink-driver": "2.9.3",
         "friends-of-behat/mink-extension": "^2.7.5",
@@ -146,6 +156,9 @@
         "patches": {
             "phrity/websocket": {
                 "PHP 8.5: fix implicit nullable param in ConnectionException": "patches/phrity-websocket-php85-nullable.patch"
+            },
+            "simplesamlphp/saml2": {
+                "7.0.0-rc4: map typed attribute values to existing xml-common schema types": "patches/simplesamlphp-saml2-7.0.0-rc4-typed-attribute-values.patch"
             }
         },
         "symfony": {

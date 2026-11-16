@@ -1,5 +1,5 @@
 {
-    "_hash": "165f082ccba0892473a26f8bba6d53863f7713ac96250740dd65146a4927d17b",
+    "_hash": "7126411b51d2da12ecaa6a801de303da5fbb5b52ef2a702be792aa590a8dee70",
     "patches": {
         "phrity/websocket": [
             {
@@ -7,6 +7,18 @@
                 "description": "PHP 8.5: fix implicit nullable param in ConnectionException",
                 "url": "patches/phrity-websocket-php85-nullable.patch",
                 "sha256": "1be2a392655fd865f5549d7f77bc306e1244f69cb2a8d5471489ef87af2ac5a4",
+                "depth": 1,
+                "extra": {
+                    "provenance": "root"
+                }
+            }
+        ],
+        "simplesamlphp/saml2": [
+            {
+                "package": "simplesamlphp/saml2",
+                "description": "7.0.0-rc4: map typed attribute values to existing xml-common schema types",
+                "url": "patches/simplesamlphp-saml2-7.0.0-rc4-typed-attribute-values.patch",
+                "sha256": "1e652d738d628bf6cf010058235978323ec927c9bb409915e21a9c196dee9d3e",
                 "depth": 1,
                 "extra": {
                     "provenance": "root"

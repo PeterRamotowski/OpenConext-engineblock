@@ -1,0 +1,55 @@
+simplesamlphp/saml2 7.0.0-rc4: map xsi:type attribute values to existing schema types
+
+AttributeValue::fromXML() maps nonNegativeInteger, nonPositiveInteger,
+positiveInteger and normalizedString (and gMonth, NCName) to classes that are
+not imported or do not exist, so valid typed attribute values raise a PHP Error.
+hexBinary was mapped as the non-existent type "hexDecimal". Import the correct
+xml-common value classes; they perform the lexical validation for each type.
+
+Backport of upstream commits e6bcdce1, 082fc9d5 and fc292499 (in 7.0.0-rc5),
+without their import reordering. Remove this patch when EngineBlock moves to a
+validated saml2 release that contains the fix.
+
+--- a/src/XML/saml/AttributeValue.php
++++ b/src/XML/saml/AttributeValue.php
+@@ -27,7 +27,7 @@
+ use SimpleSAML\XMLSchema\Type\EntitiesValue;
+ use SimpleSAML\XMLSchema\Type\EntityValue;
+ use SimpleSAML\XMLSchema\Type\FloatValue;
+-use SimpleSAML\XMLSchema\Type\HexDecimalValue;
++use SimpleSAML\XMLSchema\Type\HexBinaryValue;
+ use SimpleSAML\XMLSchema\Type\IDValue;
+ use SimpleSAML\XMLSchema\Type\IDRefValue;
+ use SimpleSAML\XMLSchema\Type\IDRefsValue;
+@@ -36,14 +36,16 @@
+ use SimpleSAML\XMLSchema\Type\Interface\ValueTypeInterface;
+ use SimpleSAML\XMLSchema\Type\LanguageValue;
+ use SimpleSAML\XMLSchema\Type\LongValue;
++use SimpleSAML\XMLSchema\Type\MonthValue;
+ use SimpleSAML\XMLSchema\Type\NameValue;
++use SimpleSAML\XMLSchema\Type\NCNameValue;
+ use SimpleSAML\XMLSchema\Type\NegativeIntegerValue;
+ use SimpleSAML\XMLSchema\Type\NMTokenValue;
+ use SimpleSAML\XMLSchema\Type\NMTokensValue;
+-use SimpleSAML\XMLSchema\Type\NonNegativeValue;
+-use SimpleSAML\XMLSchema\Type\NonPositiveValue;
+-use SimpleSAML\XMLSchema\Type\NormalizedValue;
+-use SimpleSAML\XMLSchema\Type\PositiveValue;
++use SimpleSAML\XMLSchema\Type\NonNegativeIntegerValue;
++use SimpleSAML\XMLSchema\Type\NonPositiveIntegerValue;
++use SimpleSAML\XMLSchema\Type\NormalizedStringValue;
++use SimpleSAML\XMLSchema\Type\PositiveIntegerValue;
+ use SimpleSAML\XMLSchema\Type\QNameValue;
+ use SimpleSAML\XMLSchema\Type\ShortValue;
+ use SimpleSAML\XMLSchema\Type\StringValue;
+@@ -188,8 +190,8 @@
+                 case 'float':
+                     $value = FloatValue::fromString($xml->textContent);
+                     break;
+-                case 'hexDecimal':
+-                    $value = HexDecimalValue::fromString($xml->textContent);
++                case 'hexBinary':
++                    $value = HexBinaryValue::fromString($xml->textContent);
+                     break;
+                 case 'ID':
+                     $value = IDValue::fromString($xml->textContent);
