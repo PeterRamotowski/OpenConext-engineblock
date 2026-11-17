@@ -35,8 +35,8 @@ use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlockBundle\Configuration\TestFeatureConfiguration;
 use OpenConext\EngineBlockBundle\Url\UrlProvider;
 use PHPUnit\Framework\MockObject\MockObject;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ServiceProviderFactory extends AbstractEntity
@@ -231,7 +231,7 @@ class ServiceProviderFactory extends AbstractEntity
             null,
             false,
             false,
-            XMLSecurityKey::RSA_SHA256,
+            XmlSecurityConstants::SIG_RSA_SHA256,
             false,
             false
         );
@@ -381,7 +381,7 @@ class ServiceProviderFactory extends AbstractEntity
             null,
             false,
             false,
-            XMLSecurityKey::RSA_SHA256,
+            XmlSecurityConstants::SIG_RSA_SHA256,
             false,
             false
         );

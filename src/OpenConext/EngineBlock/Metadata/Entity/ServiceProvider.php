@@ -31,8 +31,8 @@ use OpenConext\EngineBlock\Metadata\Organization;
 use OpenConext\EngineBlock\Metadata\RequestedAttribute;
 use OpenConext\EngineBlock\Metadata\Service;
 use OpenConext\EngineBlockBundle\Doctrine\Type\SerializedArrayType;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 
 /**
  * @package OpenConext\EngineBlock\Metadata\Entity
@@ -129,7 +129,7 @@ class ServiceProvider extends AbstractRole
             Constants::NAMEID_PERSISTENT,
         ),
         bool $requestsMustBeSigned = false,
-        string $signatureMethod = XMLSecurityKey::RSA_SHA256,
+        string $signatureMethod = XmlSecurityConstants::SIG_RSA_SHA256,
         string $workflowState = self::WORKFLOW_STATE_DEFAULT,
         array $allowedIdpEntityIds = array(),
         bool $allowAll = false,

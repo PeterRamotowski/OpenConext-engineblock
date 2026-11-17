@@ -16,8 +16,6 @@
  * limitations under the License.
  */
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-
 class EngineBlock_X509_PrivateKey
 {
     private $_filePath;
@@ -38,15 +36,5 @@ class EngineBlock_X509_PrivateKey
     public function filePath()
     {
         return $this->_filePath;
-    }
-
-    /**
-     * @return XMLSecurityKey
-     */
-    public function toXmlSecurityKey(string $signatureMethod): XMLSecurityKey
-    {
-        $privateKeyObj = new XMLSecurityKey($signatureMethod, array('type' => 'private'));
-        $privateKeyObj->loadKey($this->_filePath, true);
-        return $privateKeyObj;
     }
 }
