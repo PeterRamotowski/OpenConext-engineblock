@@ -26,12 +26,10 @@ use Dom\XPath;
 use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
 use OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier;
 use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
+use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
+use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
+use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
-use SAML2\Binding;
-use SAML2\HTTPPost;
-use SAML2\HTTPRedirect;
-use SAML2\Message;
-use SAML2\Response;
 use SimpleSAML\SAML2\Configuration\PrivateKey as Saml2PrivateKey;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
@@ -40,13 +38,21 @@ use SimpleSAML\SAML2\XML\samlp\AbstractMessage as V7Message;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as V7AuthnRequest;
 use SimpleSAML\SAML2\XML\samlp\Response as V7Response;
 use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Key\PrivateKey as XmlSecurityPrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate as XmlSecurityCertificate;
+use SimpleSAML\XMLSecurity\XML\ds\KeyInfo;
+use SimpleSAML\XMLSecurity\XML\ds\X509Certificate as X509CertificateElement;
+use SimpleSAML\XMLSecurity\XML\ds\X509Data;
+use SimpleSAML\XMLSchema\Type\Base64BinaryValue;
 use SimpleSAML\XMLSchema\Type\IDValue;
 use SimpleSAML\XMLSchema\Type\NCNameValue;
 use Surfnet\SamlBundle\Entity\IdentityProvider as BundleIdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider as BundleServiceProvider;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
+use Surfnet\SamlBundle\SAML2\AuthnRequest as BundleAuthnRequest;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
 use Twig\Environment;
 
@@ -977,126 +983,182 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         bool $useDefaultKey = false
     ): void {
         $bindingUrn = $message->getDeliverByBinding();
-        $sspMessage = $message->getSspMessage();
 
         if ($bindingUrn === 'INTERNAL') {
             $this->sendInternal($message);
             return;
         }
 
-        if ($this->shouldMessageBeSigned($sspMessage, $remoteEntity)) {
-            $this->configureMessageSigning($sspMessage, $remoteEntity, $useDefaultKey);
+        $mustBeSigned = $this->shouldMessageBeSigned($message->getSspMessage(), $remoteEntity);
+
+        // The binding is checked before any key is loaded, so a rejected binding never reaches a signer.
+        if ($bindingUrn === Constants::BINDING_HTTP_POST) {
+            $this->sendUsingPostBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
+            return;
         }
 
-        $this->sendMessageUsingTransportBinding($message, $remoteEntity);
+        if ($bindingUrn === Constants::BINDING_HTTP_REDIRECT) {
+            $this->sendUsingRedirectBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
+            return;
+        }
+
+        throw new EngineBlock_Corto_Module_Bindings_Exception('Unsupported Binding');
+    }
+
+    private function sendUsingPostBinding(
+        EngineBlock_Saml2_MessageAnnotationDecorator $message,
+        AbstractRole $remoteEntity,
+        bool $mustBeSigned,
+        bool $useDefaultKey
+    ): void {
+        $action = $message->getDestination();
+        if (!isset($action)) {
+            throw new EngineBlock_View_Exception('No action given to HTTP Post screen');
+        }
+
+        $type = $message->getMessageType();
+        if (!isset($type)) {
+            throw new EngineBlock_View_Exception('No message type (SAMLRequest or SAMLResponse) given to HTTP Post screen');
+        }
+
+        $xml = $this->serializeMessageForPostBinding(
+            $message->getSspMessage(),
+            $remoteEntity,
+            $mustBeSigned,
+            $useDefaultKey
+        );
+
+        // If the processed assertion consumer service is set on the response, it is posted back to the SP using the
+        // the 'return' hidden form field.
+        $return = null;
+        if (method_exists($message, 'getReturn') && !empty(trim($message->getReturn() ?? ''))) {
+            $return = $message->getReturn();
+        }
+
+        // RelayState is transport state kept on the EngineBlock adapter, not in the protocol element.
+        $relayState = $this->outgoingRelayState($message);
+
+        $log = $this->_server->getLogger();
+        $log->info('HTTP-Post: Sending Message', array('saml_message' => $xml));
+
+        $output = $this->twig->render(
+            '@theme/Authentication/View/Proxy/form.html.twig',
+            [
+                'action' => $action,
+                'message' => base64_encode($xml),
+                'relayState' => $relayState,
+                'return' => $return,
+                'name' => $type,
+            ]
+        );
+        $this->_server->sendOutput($output);
     }
 
     /**
-     * Serializes and delivers a message through an external HTTP binding.
+     * Signs copies of the message, so the annotated message itself never carries a signer.
      */
-    private function sendMessageUsingTransportBinding(
+    private function serializeMessageForPostBinding(
+        V7Message $sspMessage,
+        AbstractRole $remoteEntity,
+        bool $mustBeSigned,
+        bool $useDefaultKey
+    ): string {
+        if (!$mustBeSigned) {
+            return Saml2Value::toXmlString($sspMessage->toXML());
+        }
+
+        [$signer, $keyInfo] = $this->createSigner($remoteEntity, $useDefaultKey);
+
+        if ($sspMessage instanceof V7Response) {
+            $signedMessage = $this->signResponse($sspMessage, $remoteEntity, $signer, $keyInfo);
+        } else {
+            $signedMessage = MessageRebuilder::authnRequest($sspMessage, []);
+            $signedMessage->sign($signer, XmlSecurityConstants::C14N_EXCLUSIVE_WITHOUT_COMMENTS, $keyInfo);
+        }
+
+        return Saml2Value::toXmlString($signedMessage->toXML());
+    }
+
+    /**
+     * Every assertion is signed; the outer Response only when the SP asks for it.
+     */
+    private function signResponse(
+        V7Response $response,
+        AbstractRole $remoteEntity,
+        SignatureAlgorithmInterface $signer,
+        KeyInfo $keyInfo
+    ): V7Response {
+        $assertions = [];
+        foreach ($response->getAssertions() as $assertion) {
+            if (!$assertion instanceof V7Assertion) {
+                throw new EngineBlock_Corto_Module_Bindings_Exception(
+                    sprintf('Unable to sign an outgoing assertion of type "%s"', get_class($assertion))
+                );
+            }
+
+            $signedAssertion = MessageRebuilder::assertion($assertion, []);
+            $signedAssertion->sign($signer, XmlSecurityConstants::C14N_EXCLUSIVE_WITHOUT_COMMENTS, $keyInfo);
+            // saml2 signs while serializing into a detached document, so a signer set on a nested assertion is
+            // lost when the Response is serialized. The parsed signed assertion is imported unchanged instead.
+            $assertions[] = V7Assertion::fromXML($signedAssertion->toXML());
+        }
+
+        $signedResponse = MessageRebuilder::response($response, ['assertions' => $assertions]);
+        if ($remoteEntity instanceof ServiceProvider && $remoteEntity->getCoins()->signResponse()) {
+            $signedResponse->sign($signer, XmlSecurityConstants::C14N_EXCLUSIVE_WITHOUT_COMMENTS, $keyInfo);
+        }
+
+        return $signedResponse;
+    }
+
+    private function sendUsingRedirectBinding(
         EngineBlock_Saml2_MessageAnnotationDecorator $message,
-        AbstractRole $remoteEntity
+        AbstractRole $remoteEntity,
+        bool $mustBeSigned,
+        bool $useDefaultKey
     ): void {
         $sspMessage = $message->getSspMessage();
-        $sspBinding = Binding::getBinding($message->getDeliverByBinding());
-        if ($sspBinding instanceof HTTPPost) {
-            $xml = $this->serializeMessageForPostBinding($sspMessage, $remoteEntity);
-
-            // If the processed assertion consumer service is set on the response, it is posted back to the SP using the
-            // the 'return' hidden form field.
-            $return = null;
-            if (method_exists($message, 'getReturn') && !empty(trim($message->getReturn() ?? ''))) {
-                $return = $message->getReturn();
-            }
-
-            // RelayState is transport state kept on the EngineBlock adapter, not in the protocol element.
-            $relayState = $message->getRelayState() ?: null;
-
-            $encodedMessage = base64_encode($xml);
-
-            $action = $message->getDestination();
-
-            $log = $this->_server->getLogger();
-            $log->info('HTTP-Post: Sending Message', array('saml_message' => $xml));
-
-            $type = $message->getMessageType();
-
-            if (!isset($action)) {
-                throw new EngineBlock_View_Exception('No action given to HTTP Post screen');
-            }
-            if (!isset($type)) {
-                throw new EngineBlock_View_Exception('No message type (SAMLRequest or SAMLResponse) given to HTTP Post screen');
-            }
-            if (!isset($encodedMessage)) {
-                throw new EngineBlock_View_Exception('No message given to HTTP Post screen');
-            }
-
-            $output = $this->twig->render(
-                '@theme/Authentication/View/Proxy/form.html.twig',
-                [
-                    'action' => $action,
-                    'message' => $encodedMessage,
-                    'relayState' => $relayState,
-                    'return' => $return,
-                    'name' => $type,
-                ]
-            );
-            $this->_server->sendOutput($output);
-
-        } else if ($sspBinding instanceof HTTPRedirect) {
-            $url = $this->buildMessageRedirectUrl($sspBinding, $sspMessage, $remoteEntity);
-            $this->_server->redirect($url, $message);
-        }
-        else {
-            throw new EngineBlock_Corto_Module_Bindings_Exception(
-                'Unsupported Binding'
-            );
-        }
-    }
-
-    private function serializeMessageForPostBinding(Message $sspMessage, AbstractRole $remoteEntity): string
-    {
-        if ($sspMessage instanceof Response) {
-            // Sign every assertion, and the outer Response only when the SP requests it.
-            foreach ($sspMessage->getAssertions() as $assertion) {
-                $assertion->setCertificates($sspMessage->getCertificates());
-                $assertion->setSignatureKey($sspMessage->getSignatureKey());
-            }
-
-            if ($remoteEntity instanceof ServiceProvider && $remoteEntity->getCoins()->signResponse()) {
-                $messageElement = $sspMessage->toSignedXML();
-            } else {
-                $messageElement = $sspMessage->toUnsignedXML();
-            }
-        } else {
-            $messageElement = $sspMessage->toSignedXML();
-        }
-
-        return $messageElement->ownerDocument->saveXML($messageElement);
-    }
-
-    private function buildMessageRedirectUrl(
-        HTTPRedirect $binding,
-        Message $sspMessage,
-        AbstractRole $remoteEntity
-    ): string {
-        if ($sspMessage instanceof Response) {
+        if ($sspMessage instanceof V7Response) {
             throw new EngineBlock_Corto_Module_Bindings_UnsupportedBindingException(
                 'May not send a response via HTTP redirect'
             );
         }
 
-        $url = $binding->getRedirectURL($sspMessage);
+        $destination = $message->getDestination();
+        if ($destination === null || $destination === '') {
+            throw new EngineBlock_Corto_Module_Bindings_Exception('No destination given for the HTTP-Redirect binding');
+        }
+
+        $relayState = $this->outgoingRelayState($message);
+        if ($mustBeSigned) {
+            [$signer] = $this->createSigner($remoteEntity, $useDefaultKey);
+            $query = BundleAuthnRequest::createNew($sspMessage, $signer, $relayState)->buildRequestQuery();
+        } else {
+            $query = $this->getUnsignedRedirectEncoder()->buildQuery(
+                BundleAuthnRequest::createNew($sspMessage),
+                $relayState
+            );
+        }
+
+        $url = $destination . (str_contains($destination, '?') ? '&' : '?') . $query;
         if ($remoteEntity instanceof IdentityProvider) {
             $domainHint = $remoteEntity->getCoins()->azureDomainHint();
             if (!empty($domainHint)) {
-                $separator = str_contains($url, '?') ? '&' : '?';
-                $url .= $separator . http_build_query(['whr' => $domainHint]);
+                $url .= '&' . http_build_query(['whr' => $domainHint]);
             }
         }
 
-        return $url;
+        $this->_server->redirect($url, $message);
+    }
+
+    /**
+     * Only an absent or empty RelayState is omitted; falsy values such as "0" are opaque SP state.
+     */
+    private function outgoingRelayState(EngineBlock_Saml2_MessageAnnotationDecorator $message): ?string
+    {
+        $relayState = $message->getRelayState();
+
+        return $relayState === null || $relayState === '' ? null : $relayState;
     }
 
     protected function shouldMessageBeSigned(V7Message $sspMessage, AbstractRole $remoteEntity)
@@ -1116,22 +1178,46 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * Selects the route key, or the default key when forced, and sets it on the message with the
-     * signature method configured for the remote entity.
+     * Selects the route key, or the default key when forced, with the signature method configured for the
+     * remote entity. An unsupported method is rejected; another method is never substituted.
+     *
+     * @return array{SignatureAlgorithmInterface, KeyInfo}
      */
-    private function configureMessageSigning(
-        Message $sspMessage,
-        AbstractRole $remoteEntity,
-        bool $useDefaultKey
-    ): void {
+    private function createSigner(AbstractRole $remoteEntity, bool $useDefaultKey): array
+    {
         $keyPair = $this->_server->getSigningCertificates($useDefaultKey);
+        $signatureMethod = $remoteEntity->getCoins()->signatureMethod();
 
-        $sspMessage->setCertificates(array($keyPair->getCertificate()->toPem()));
-        $sspMessage->setSignatureKey(
-            $keyPair->getPrivateKey()->toXmlSecurityKey(
-                $remoteEntity->getCoins()->signatureMethod()
-            )
-        );
+        try {
+            $signer = $this->getSignerFactory()->forLocalKey(
+                XmlSecurityPrivateKey::fromFile($keyPair->getPrivateKey()->filePath()),
+                $signatureMethod
+            );
+        } catch (UnsupportedSignatureAlgorithmException $exception) {
+            throw EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException::forRemoteEntity(
+                $exception->getAlgorithm(),
+                $remoteEntity->entityId,
+                $exception
+            );
+        }
+
+        $keyInfo = new KeyInfo([
+            new X509Data([
+                new X509CertificateElement(Base64BinaryValue::fromString($keyPair->getCertificate()->toCertData())),
+            ]),
+        ]);
+
+        return [$signer, $keyInfo];
+    }
+
+    private function getSignerFactory(): SignerFactory
+    {
+        return EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getSamlSignerFactory();
+    }
+
+    private function getUnsignedRedirectEncoder(): UnsignedRedirectEncoder
+    {
+        return EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getSamlUnsignedRedirectEncoder();
     }
 
     private function assertValidAcsLocationScheme($acsLocation)

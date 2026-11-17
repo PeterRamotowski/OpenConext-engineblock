@@ -77,6 +77,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
     private const REQUEST_ID = '_request';
     private const RSA_SHA1 = 'http://www.w3.org/2000/09/xmldsig#rsa-sha1';
     private const RSA_SHA256 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
+    private const RSA_SHA384 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384';
     private const RSA_SHA512 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512';
     private const NAMEID_TRANSIENT = 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient';
 
@@ -87,9 +88,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
     private $originalDiContainer;
 
     private $mfaHelper;
-
-    // Outgoing signing and HTTP-POST/Redirect transport still use saml2 4.x (migration package 5)
-    private const PENDING_SEND_MIGRATION = 'Requires the bundle signing and transport bindings (migration package 5)';
 
     public function setUp(): void
     {
@@ -129,8 +127,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testResponseRedirectIsNotSupported()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $this->expectException(EngineBlock_Corto_Module_Bindings_UnsupportedBindingException::class);
 
         $response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse();
@@ -205,8 +201,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testAzureDomainHintIsAppendedToRedirectUrl()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['destination' => 'https://login.microsoftonline.com/tenant-id/saml2']);
         $request->setDeliverByBinding(Constants::BINDING_HTTP_REDIRECT);
 
@@ -231,8 +225,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testAzureDomainHintIsNotAddedWhenNotConfigured()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['destination' => 'https://idp.example.com/sso']);
         $request->setDeliverByBinding(Constants::BINDING_HTTP_REDIRECT);
 
@@ -250,8 +242,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testAzureDomainHintWhrParamIsCorrectlyUrlEncoded()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['destination' => 'https://login.microsoftonline.com/tenant-id/saml2']);
         $request->setDeliverByBinding(Constants::BINDING_HTTP_REDIRECT);
 
@@ -276,8 +266,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testHttpPostPassesRelayStateAndReturnAsTemplateVariablesWithoutHtml()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $twig = $this->createMock(Twig\Environment::class);
         $twig->expects($this->once())
             ->method('render')
@@ -306,8 +294,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testHttpPostPassesNoRelayStateOrReturnWhenAbsent()
     {
-        $this->markTestSkipped(self::PENDING_SEND_MIGRATION);
-
         $twig = $this->createMock(Twig\Environment::class);
         $twig->expects($this->once())
             ->method('render')
@@ -326,6 +312,141 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $response->setDeliverByBinding(Constants::BINDING_HTTP_POST);
 
         $this->createBindingsWithTwig($twig)->send($response, new ServiceProvider('https://sp.example.edu'));
+    }
+
+    public function testHttpPostEncodesAndRendersFalsyRelayState()
+    {
+        $loader = new Twig\Loader\FilesystemLoader();
+        $loader->addPath(__DIR__ . '/../../../../../../theme/base/templates/modules', 'theme');
+        $loader->addPath(__DIR__ . '/../../../../../../theme/base/templates/layouts', 'themeLayouts');
+        $twig = new Twig\Environment($loader, ['strict_variables' => false]);
+        $twig->addFunction(new Twig\TwigFunction('locale', static fn () => 'en'));
+        $twig->addFilter(new Twig\TwigFilter('trans', static fn ($id) => $id));
+
+        $response = $this->createPostResponse();
+        $response->setDeliverByBinding(Constants::BINDING_HTTP_POST);
+        $response->setRelayState('0');
+
+        $this->createBindingsWithTwig($twig)->send($response, new ServiceProvider('https://sp.example.edu'));
+
+        Phake::verify($this->proxyServer)->sendOutput(Phake::capture($html));
+        $document = Dom\HTMLDocument::createFromString($html, LIBXML_NOERROR);
+        $relayStates = $document->querySelectorAll('#ProcessForm input[name="RelayState"]');
+        $this->assertCount(1, $relayStates);
+        $this->assertSame('0', $relayStates->item(0)->getAttribute('value'));
+    }
+
+    #[DataProvider('redirectSigningProvider')]
+    public function testRedirectRequestKeepsFalsyRelayState(bool $mustBeSigned)
+    {
+        $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(
+            ['destination' => 'https://idp.example.com/sso', 'issuer' => self::EB_SP_ENTITY_ID],
+            '0'
+        );
+        $request->setDeliverByBinding(Constants::BINDING_HTTP_REDIRECT);
+
+        $this->bindings->send(
+            $request,
+            new IdentityProvider('https://idp.example.com', requestsMustBeSigned: $mustBeSigned, signatureMethod: self::RSA_SHA512)
+        );
+
+        Phake::verify($this->proxyServer)->redirect(Phake::capture($redirectUrl), Phake::capture($capturedMessage));
+        $rawParameters = [];
+        foreach (explode('&', parse_url($redirectUrl, PHP_URL_QUERY)) as $pair) {
+            [$name, $value] = explode('=', $pair, 2);
+            $rawParameters[$name] = $value;
+        }
+        $this->assertSame('0', rawurldecode($rawParameters['RelayState']));
+
+        if (!$mustBeSigned) {
+            $this->assertArrayNotHasKey('SigAlg', $rawParameters);
+            $this->assertArrayNotHasKey('Signature', $rawParameters);
+            return;
+        }
+
+        $this->assertSame(self::RSA_SHA512, rawurldecode($rawParameters['SigAlg']));
+        $signedQuery = sprintf(
+            'SAMLRequest=%s&RelayState=%s&SigAlg=%s',
+            $rawParameters['SAMLRequest'],
+            $rawParameters['RelayState'],
+            $rawParameters['SigAlg']
+        );
+        $this->assertTrue(XmlSecurity::verifyRedirectSignature(
+            $signedQuery,
+            base64_decode(rawurldecode($rawParameters['Signature']), true),
+            file_get_contents(__DIR__ . '/test.pem.crt'),
+            self::RSA_SHA512
+        ));
+    }
+
+    public static function redirectSigningProvider(): array
+    {
+        return ['unsigned' => [false], 'signed' => [true]];
+    }
+
+    /**
+     * The assertion signature is checked in the final serialized Response: saml2 signs nested elements into a
+     * detached document, so a signer set on the assertion alone would be lost when the Response is serialized.
+     */
+    #[DataProvider('outgoingResponseSignatureProvider')]
+    public function testPostResponseCarriesVerifiableAssertionSignature(string $algorithm, bool $signResponse)
+    {
+        $twig = $this->createMock(Twig\Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with('@theme/Authentication/View/Proxy/form.html.twig', $this->callback(function (array $parameters) use (&$message) {
+                $message = $parameters['message'];
+                return true;
+            }))
+            ->willReturn('rendered');
+
+        $response = $this->createPostResponse();
+        $response->setDeliverByBinding(Constants::BINDING_HTTP_POST);
+        $this->createBindingsWithTwig($twig)->send(
+            $response,
+            new ServiceProvider('https://sp.example.edu', signatureMethod: $algorithm, signResponse: $signResponse)
+        );
+
+        $document = DOMDocumentFactory::fromString(base64_decode($message, true));
+        $sentResponse = Response::fromXML($document->documentElement);
+        $verifier = XmlSecurity::verifier(file_get_contents(__DIR__ . '/test.pem.crt'), $algorithm);
+
+        $assertions = $sentResponse->getAssertions();
+        $this->assertCount(1, $assertions);
+        $this->assertTrue($assertions[0]->isSigned(), 'The assertion in the serialized Response must be signed');
+        $this->assertSame(
+            $algorithm,
+            $assertions[0]->getSignature()->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue()
+        );
+        $verifiedAssertion = $assertions[0]->verify($verifier);
+        $this->assertInstanceOf(Assertion::class, $verifiedAssertion);
+        $this->assertSignatureFollowsIssuer($document->getElementsByTagNameNS(Constants::NS_SAML, 'Assertion')->item(0));
+
+        $this->assertSame($signResponse, $sentResponse->isSigned());
+        if ($signResponse) {
+            $verifiedResponse = $sentResponse->verify($verifier);
+            $this->assertInstanceOf(Response::class, $verifiedResponse);
+            $this->assertSignatureFollowsIssuer($document->documentElement);
+        }
+    }
+
+    public static function outgoingResponseSignatureProvider(): array
+    {
+        $cases = [];
+        foreach (['sha256' => self::RSA_SHA256, 'sha384' => self::RSA_SHA384, 'sha512' => self::RSA_SHA512] as $name => $algorithm) {
+            $cases["$name, assertion only"] = [$algorithm, false];
+            $cases["$name, assertion and response"] = [$algorithm, true];
+        }
+
+        return $cases;
+    }
+
+    private function assertSignatureFollowsIssuer(Dom\Element $element): void
+    {
+        $issuer = $element->firstElementChild;
+        $this->assertSame('Issuer', $issuer->localName);
+        $this->assertSame('Signature', $issuer->nextElementSibling?->localName);
+        $this->assertSame('http://www.w3.org/2000/09/xmldsig#', $issuer->nextElementSibling->namespaceURI);
     }
 
     private function installRuntime(Twig\Environment $twig): void
