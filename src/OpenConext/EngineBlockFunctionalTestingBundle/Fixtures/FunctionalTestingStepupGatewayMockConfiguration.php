@@ -18,14 +18,21 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Fixtures;
 
-use EngineBlock_ApplicationSingleton;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProviderFactory;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProviderFactory;
 
+/**
+ * The mock Stepup gateway signs with its own test key pair, which EngineBlock trusts through the functional-testing
+ * StepupEndpoint. It never uses EngineBlock's own keys, so Stepup flows also work when EngineBlock's keys are held by
+ * the Private Key Agent.
+ */
 final class FunctionalTestingStepupGatewayMockConfiguration
 {
+    public const CERTIFICATE_FILE = __DIR__ . '/../Resources/keys/stepup-gateway-mock.crt';
+    public const PRIVATE_KEY_FILE = __DIR__ . '/../Resources/keys/stepup-gateway-mock.key';
+
     /**
      * @var MockIdentityProviderFactory
      */
@@ -48,19 +55,16 @@ final class FunctionalTestingStepupGatewayMockConfiguration
 
     public function __construct(
         MockIdentityProviderFactory $mockIdentityProviderFactory,
-        MockServiceProviderFactory $mockServiceProviderFactory,
-        EngineBlock_ApplicationSingleton $engineBlockApplicationSingleton
+        MockServiceProviderFactory $mockServiceProviderFactory
     ) {
         $this->mockIdentityProviderFactory = $mockIdentityProviderFactory;
         $this->mockServiceProviderFactory = $mockServiceProviderFactory;
 
-        $keysConfig = $engineBlockApplicationSingleton->getDiContainer()->getEncryptionKeysConfiguration();
-
         // Set gateway configured IDP
         $mockEbIdp = $this->mockIdentityProviderFactory->createNew('Stepup gateway');
         $mockEbIdp->setEntityId('https://engine.dev.openconext.local/authentication/stepup/metadata');
-        $mockEbIdp->setPrivateKey($keysConfig['default']['privateFile']);
-        $mockEbIdp->setCertificate($keysConfig['default']['publicFile']);
+        $mockEbIdp->setPrivateKey(self::PRIVATE_KEY_FILE);
+        $mockEbIdp->setCertificate(self::CERTIFICATE_FILE);
 
         $this->mockIdentityProvider = $mockEbIdp;
 

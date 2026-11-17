@@ -74,7 +74,7 @@ class EngineBlock_Application_FunctionalTestDiContainer extends EngineBlock_Appl
      * This method is used to mock the private key and will return the same private key as in /etc/openconext/engineblock.pem
      * The file /etc/openconext/engineblock.pem is not readable for all users and would break running tests because the
      * key file could not be opened so therefore a different file is used.
-     * The private key is needed to validate stepup authentication responses which will use the same key for the gateway
+     * EngineBlock signs with this local key; the mock Stepup gateway has its own key pair.
      *
      * @return array
      */

@@ -59,7 +59,6 @@ services:
         arguments:
             - '@engineblock.mock_entities.idp_factory'
             - '@engineblock.mock_entities.sp_factory'
-            - "@engineblock.compat.application"
 
     engineblock.functional_testing.fixture.sbs_client_state_manager:
         class: OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\SbsClientStateManager
@@ -126,7 +125,8 @@ services:
         arguments:
             - "https://engine.dev.openconext.local/authentication/stepup/metadata"
             - "https://engine.dev.openconext.local/functional-testing/gateway/second-factor-only/single-sign-on"
-            - "%stepup.gateway.sfo.key_file%"
+            # The mock gateway's own certificate, see FunctionalTestingStepupGatewayMockConfiguration.
+            - "%kernel.project_dir%/src/OpenConext/EngineBlockFunctionalTestingBundle/Resources/keys/stepup-gateway-mock.crt"
     OpenConext\EngineBlockBundle\Configuration\ErrorFeedbackConfiguration:
         arguments:
             - "@engineblock.functional_testing.mock.translator"
