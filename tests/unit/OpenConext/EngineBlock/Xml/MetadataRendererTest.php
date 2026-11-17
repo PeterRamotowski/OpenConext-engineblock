@@ -46,12 +46,17 @@ use OpenConext\EngineBlockBundle\Twig\Extensions\Extension\Spaceless;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use RobRichards\XMLSecLibs\XMLSecEnc;
-use RobRichards\XMLSecLibs\XMLSecurityDSig;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\XML\md\EntitiesDescriptor;
-use SAML2\XML\md\EntityDescriptor;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
+use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Key\X509Certificate as XmlSecurityCertificate;
+use SimpleSAML\XMLSecurity\Utils\XPath;
+use SimpleSAML\XMLSecurity\XML\ds\Signature;
+use Surfnet\SamlBundle\Service\SigningService;
 use Symfony\Bridge\Twig\Extension\TranslationExtension;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
@@ -106,8 +111,9 @@ class MetadataRendererTest extends TestCase
 
         // Assert descriptor
 
-        $entityDescriptor = new EntityDescriptor($dom->childNodes->item(1));
-        $this->assertInstanceOf(EntityDescriptor::class, $entityDescriptor);
+        $descriptor = $dom->childNodes->item(1);
+        $this->assertSame('EntityDescriptor', $descriptor->localName);
+        $this->assertSame(Constants::NS_MD, $descriptor->namespaceURI);
 
         // Assert schema
         $this->validateSchema($xml);
@@ -154,8 +160,9 @@ class MetadataRendererTest extends TestCase
         $this->assertStringContainsString('trans-openconext_terms_of_use_url', $comment->nodeValue);
 
         // Assert descriptor
-        $entityDescriptor = new EntityDescriptor($dom->childNodes->item(1));
-        $this->assertInstanceOf(EntityDescriptor::class, $entityDescriptor);
+        $descriptor = $dom->childNodes->item(1);
+        $this->assertSame('EntityDescriptor', $descriptor->localName);
+        $this->assertSame(Constants::NS_MD, $descriptor->namespaceURI);
 
         // Verify that the requried "mailto:" prefix is present for the EmailAdress tag
         $this->assertStringContainsString('<md:EmailAddress>mailto:admin@example.org</md:EmailAddress>', $xml);
@@ -218,8 +225,9 @@ class MetadataRendererTest extends TestCase
         $this->assertStringContainsString('trans-openconext_terms_of_use_url', $comment->nodeValue);
 
         // Assert descriptor
-        $entityDescriptor = new EntitiesDescriptor($dom->childNodes->item(1));
-        $this->assertInstanceOf(EntitiesDescriptor::class, $entityDescriptor);
+        $descriptor = $dom->childNodes->item(1);
+        $this->assertSame('EntitiesDescriptor', $descriptor->localName);
+        $this->assertSame(Constants::NS_MD, $descriptor->namespaceURI);
 
         // Assert schema
         $this->validateSchema($xml);
@@ -341,7 +349,10 @@ class MetadataRendererTest extends TestCase
         $basePath = realpath(__DIR__ . '/../../../../../');
 
         $privateKey = new X509PrivateKey($basePath . '/tests/resources/key/engineblock.pem');
-        $publicKey = new X509Certificate(openssl_x509_read(file_get_contents($basePath . '/tests/resources/key/engineblock.crt')));
+        $publicKey = new X509Certificate(
+            openssl_x509_read(file_get_contents($basePath . '/tests/resources/key/engineblock.crt')),
+            $basePath . '/tests/resources/key/engineblock.crt'
+        );
         $keyPair = new X509KeyPair($publicKey, $privateKey);
 
         $samlIdGenerator = $this->createMock(SamlIdGenerator::class);
@@ -369,7 +380,7 @@ class MetadataRendererTest extends TestCase
             ->method('buildFromIdentifier')
             ->willReturn($keyPair);
 
-        $documentSigner = new DocumentSigner();
+        $documentSigner = new DocumentSigner(new SigningService(new KeyLoader(), new PrivateKeyLoader()));
 
         $languages = ['nl', 'en'];
         $supportedLanguageProvider = new LanguageSupportProvider($languages, $languages);
@@ -426,28 +437,56 @@ class MetadataRendererTest extends TestCase
             "isRequired=\"" . var_export($isRequired, true) ."\"/>";
     }
 
+    /**
+     * Verifies the enveloped metadata signature at DOM level, as the test entity IDs are not SAML2 URIs and are
+     * rejected by the strict saml2 metadata models.
+     */
     private function validateXml($xml)
     {
-        $doc = new DOMDocument();
-        $doc->loadXML($xml);
-
-        $objXMLSecDSig = new XMLSecurityDSig();
-        $objXMLSecDSig->idKeys = ['ID'];
-
-        $objDSig = $objXMLSecDSig->locateSignature($doc);
-        if (!$objDSig) {
+        $document = DOMDocumentFactory::fromString($xml);
+        $root = $document->documentElement;
+        $signatureNodes = XPath::xpQuery($root, './ds:Signature', XPath::getXPath($document));
+        if (count($signatureNodes) !== 1) {
             throw new Exception('Unable to find signature');
         }
-        $objXMLSecDSig->canonicalizeSignedInfo();
 
-        if (!$objXMLSecDSig->validateReference()) {
+        $signature = Signature::fromXML($signatureNodes[0]);
+        $signedInfo = $signature->getSignedInfo();
+        $references = $signedInfo->getReferences();
+        $transforms = array_map(
+            fn ($transform) => $transform->getAlgorithm()->getValue(),
+            $references[0]->getTransforms()?->getTransform() ?? []
+        );
+        if (count($references) !== 1
+            || strval($references[0]->getURI()) !== '#' . $root->getAttribute('ID')
+            || $transforms !== [XmlSecurityConstants::XMLDSIG_ENVELOPED, XmlSecurityConstants::C14N_EXCLUSIVE_WITHOUT_COMMENTS]
+        ) {
             throw new Exception('Reference validation failed');
         }
 
-        $objKey = $objXMLSecDSig->locateKey();
-        $objKeyInfo = XMLSecEnc::staticLocateKeyInfo($objKey, $objDSig);
+        $unsignedDocument = DOMDocumentFactory::create();
+        $unsignedRoot = $unsignedDocument->appendChild($unsignedDocument->importNode($root, true));
+        $unsignedRoot->removeChild(XPath::xpQuery($unsignedRoot, './ds:Signature', XPath::getXPath($unsignedDocument))[0]);
+        $digestAlgorithm = $references[0]->getDigestMethod()->getAlgorithm()->getValue();
+        $digest = hash(XmlSecurityConstants::$DIGEST_ALGORITHMS[$digestAlgorithm], $unsignedRoot->C14N(true, false), true);
+        $expectedDigest = base64_decode($references[0]->getDigestValue()->getContent()->getValue(), true);
+        if (!hash_equals($digest, $expectedDigest)) {
+            throw new Exception('Reference validation failed');
+        }
 
-        if (!$objXMLSecDSig->verify($objKey)) {
+        $certificate = new XmlSecurityCertificate(
+            PEM::fromString(file_get_contents(realpath(__DIR__ . '/../../../../../') . '/tests/resources/key/engineblock.crt'))
+        );
+        $verifier = (new SignatureAlgorithmFactory())->getAlgorithm(
+            $signedInfo->getSignatureMethod()->getAlgorithm()->getValue(),
+            $certificate->getPublicKey()
+        );
+        $signatureValue = base64_decode(
+            preg_replace('/\s+/', '', strval($signature->getSignatureValue()->getValue())),
+            true
+        );
+        $canonicalSignedInfo = $signedInfo->canonicalize($signedInfo->getCanonicalizationMethod()->getAlgorithm()->getValue());
+        if (!$verifier->verify($canonicalSignedInfo, $signatureValue)) {
             throw new Exception('Signature validation failed');
         }
 

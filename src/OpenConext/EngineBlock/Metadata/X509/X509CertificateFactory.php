@@ -46,7 +46,7 @@ class X509CertificateFactory
         } catch (Exception $e) {
             throw new RuntimeException(sprintf('File at "%s" does not contain a valid certificate.', $filePath), 0, $e);
         }
-        return $certificate;
+        return new X509Certificate($certificate->toResource(), $filePath);
     }
 
     /**

@@ -52,7 +52,10 @@ class KeyPairFactory implements KeyPairFactoryInterface
         if (array_key_exists($identifier, $this->keyPairConfiguration)) {
             $keys = $this->keyPairConfiguration[$identifier];
             $privateKey = new X509PrivateKey($keys['privateFile']);
-            $publicKey = new X509Certificate(openssl_x509_read(file_get_contents($keys['publicFile'])));
+            $publicKey = new X509Certificate(
+                openssl_x509_read(file_get_contents($keys['publicFile'])),
+                $keys['publicFile']
+            );
             return new X509KeyPair($publicKey, $privateKey);
         }
         throw new UnknownKeyIdException($identifier);

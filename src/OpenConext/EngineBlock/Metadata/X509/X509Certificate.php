@@ -34,17 +34,26 @@ class X509Certificate
      */
     private $opensslResource;
 
+    private ?string $filePath;
+
     /**
      * @param $opensslResource
+     * @param string|null $filePath The PEM file the certificate was read from, required for signing with it
      * @throws RuntimeException
      */
-    public function __construct($opensslResource)
+    public function __construct($opensslResource, ?string $filePath = null)
     {
         if (empty($opensslResource)) {
             throw new RuntimeException('Invalid OpenSSL key!');
         }
 
         $this->opensslResource = $opensslResource;
+        $this->filePath = $filePath;
+    }
+
+    public function getFilePath(): ?string
+    {
+        return $this->filePath;
     }
 
     /**
