@@ -21,7 +21,7 @@ services:
         tags:
             - { name: kernel.event_listener, event: Symfony\Component\HttpKernel\Event\ExceptionEvent, method: onKernelException, priority: 1000 }
 
-    # D7: runs after Symfony's session listener (128) and before the session is saved (-1000).
+    # Runs after Symfony's session listener (128) and before the session is saved (-1000).
     OpenConext\EngineBlockBundle\EventListener\SessionNamespaceListener:
         arguments:
             - '%session_cookie_name%'

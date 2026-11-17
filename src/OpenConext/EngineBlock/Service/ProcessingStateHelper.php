@@ -93,7 +93,7 @@ class ProcessingStateHelper implements ProcessingStateHelperInterface
         }
 
         $step = $processing[$requestId][$name];
-        // D7: state that was not written by this release is never trusted; the flow restarts via session-lost feedback.
+        // State that was not written by this release is never trusted; the flow restarts via session-lost feedback.
         if (!$step instanceof ProcessingStateStep
             || !$step->getResponse() instanceof EngineBlock_Saml2_ResponseAnnotationDecorator
         ) {

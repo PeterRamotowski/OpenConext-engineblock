@@ -30,7 +30,7 @@ class EngineBlock_Saml2_MessageSerializer
     private const NS_SAMLP = 'urn:oasis:names:tc:SAML:2.0:protocol';
 
     /**
-     * The XML of the message. A message with a signer configured (package 5) is signed by saml2 v7 on toXML().
+     * The XML of the message. A message with a signer configured is signed by saml2 v7 on toXML().
      */
     public function serialize(AbstractMessage $samlMessage): string
     {

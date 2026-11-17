@@ -66,7 +66,7 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
             return null;
         }
 
-        // D7: state that was not written by this release is never trusted; the flow restarts via session-lost feedback.
+        // State that was not written by this release is never trusted; the flow restarts via session-lost feedback.
         if (!$request instanceof EngineBlock_Saml2_AuthnRequestAnnotationDecorator) {
             throw new EngineBlock_Corto_Module_Services_SessionLostException(
                 sprintf('Stored request "%s" is not readable by this release', $requestId)

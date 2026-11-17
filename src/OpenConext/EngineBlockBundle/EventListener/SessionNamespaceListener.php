@@ -24,7 +24,7 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 
 /**
- * D7 session cutover: a session is only used by the release (storage namespace) that wrote it.
+ * A session is only used by the release (storage namespace) that wrote it.
  *
  * Every session written by this release carries a namespace marker. A session presented without the expected
  * marker (a reused cookie name, a rollback, or a release with another serialization format) is invalidated before

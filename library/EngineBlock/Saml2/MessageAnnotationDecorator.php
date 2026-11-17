@@ -32,7 +32,7 @@ use SimpleSAML\XMLSchema\Type\IDValue;
  * protocol element (RelayState, delivery binding). Mutators rebuild the wrapped message.
  *
  * Serialized adapters carry a format marker. Stored state written by another release is never
- * decoded (D7): it is marked stale and restarts the flow through the session-lost feedback.
+ * decoded: it is marked stale and restarts the flow through the session-lost feedback.
  */
 abstract class EngineBlock_Saml2_MessageAnnotationDecorator
 {
