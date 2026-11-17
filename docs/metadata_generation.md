@@ -94,6 +94,10 @@ There needs to be a key named "default". This will be used towards IdPs (authnre
 towards the Stepup IdP (if used) and for SPs that do not specify a specific key ID in the single
 sign on location.
 
+Each key either uses a local private key file or the Private Key Agent (`backend: agent`, see
+`config/packages/parameters.yml.dist`). Both kinds can be mixed and rolled over in the same way; only the "default"
+key decrypts assertions received from IdPs, so replacing it is a coordinated change.
+
 Engineblock does *not* currently have support for the classic key rollover scenario where multiple
 keys are published in its metadata and remote entities consume this, after a while the new key
 will be set active and the old key removed from metadata.
@@ -142,7 +146,8 @@ KeyDescriptor. Which is the whole idea of the key rollover pricible.
 
 When the SP or IdP entity is decorated, the key identifier that was passed to the controller action is used to load the
 appropriate key pair (using the key pair factory). This factory reads the keys from the filesystem location configured
-in the parameters.yml. And creates an X509 keypair.
+in the parameters.yml. And creates an X509 keypair. A Private Key Agent key pair holds only the certificate; the
+metadata is then signed through the agent.
 
 This keypair is loaded on the decorator and used to show the correct certificate value in the XML metdata.
 

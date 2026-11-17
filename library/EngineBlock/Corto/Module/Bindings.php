@@ -24,6 +24,7 @@ use OpenConext\EngineBlockBundle\Exception\ResponseProcessingFailedException;
 use Dom\Element;
 use Dom\XPath;
 use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
+use OpenConext\EngineBlock\Saml2\Bundle\PrivateKeyAgentFailure;
 use OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier;
 use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
 use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
@@ -41,6 +42,7 @@ use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface;
 use SimpleSAML\XMLSecurity\Key\PrivateKey as XmlSecurityPrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate as XmlSecurityCertificate;
 use SimpleSAML\XMLSecurity\XML\ds\KeyInfo;
@@ -315,7 +317,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * C2: drops AllowCreate from a direct transient NameIDPolicy child of an unsigned POST request,
+     * Drops AllowCreate from a direct transient NameIDPolicy child of an unsigned POST request,
      * as the bundle does for HTTP-Redirect requests. Signed requests are never rewritten.
      */
     private function normalizeTransientAllowCreate(Element $root, string $xml): string
@@ -344,7 +346,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * A2: verifies the original Redirect query bytes with the SP's configured certificates.
+     * Verifies the original Redirect query bytes with the SP's configured certificates.
      */
     private function verifyRedirectSignature(
         ServiceProvider $serviceProvider,
@@ -448,7 +450,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * C5: signed requests must have a Destination, and a present Destination must exactly match the
+     * Signed requests must have a Destination, and a present Destination must exactly match the
      * configured base single sign-on URL or the configured URL of the dispatched key/IdP route.
      */
     private function assertRequestDestination(?string $destination, bool $isSigned, ?string $idpHash): void
@@ -571,8 +573,10 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $this->logMissingDestination($root, $idpEntityId);
         $this->logEncryptedAssertionLayouts($root, $idpEntityId);
 
-        // C4 and C1 apply to the original decoded XML, before typed parsing discards information.
+        // Check encryption layout and fill a missing Destination before typed parsing discards XML information.
         $this->assertSupportedEncryptionLayouts($root);
+        $decryptionKeyPair = $this->getDefaultDecryptionKeyPair();
+        $this->assertAgentDecryptionPreconditions($root, $decryptionKeyPair);
         $this->fillMissingDestination($root, $expectedDestination);
 
         try {
@@ -625,7 +629,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         $identityProvider = $this->bundleIdentityProvider($cortoIdpMetadata);
 
-        // D8: error responses never pass through the success processor.
+        // Error responses never pass through the success processor.
         if (!$sspResponse->isSuccess()) {
             return $this->receiveErrorResponse($sspResponse, $identityProvider, $expectedDestination, $relayState);
         }
@@ -634,7 +638,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             $verifiedResponse = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()
                 ->getSamlVerifiedResponseProcessor()
                 ->process(
-                    $this->bundleServiceProvider($serviceEntityId, $expectedDestination),
+                    $this->bundleServiceProvider($serviceEntityId, $expectedDestination, $decryptionKeyPair),
                     $identityProvider,
                     $expectedDestination,
                     $sspResponse
@@ -676,7 +680,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * D8: checks the routed destination, any present signature and the pending request before acting on an
+     * Checks the routed destination, any present signature and the pending request before acting on an
      * error response. The returned response carries no assertion.
      */
     private function receiveErrorResponse(
@@ -832,6 +836,15 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     {
         if ($exception instanceof UnsupportedSignatureAlgorithmException) {
             return new EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException($exception->getAlgorithm());
+        }
+
+        $agentFailure = PrivateKeyAgentFailure::find($exception);
+        if ($agentFailure !== null) {
+            // Not chained: only the redacted agent diagnostic is kept. There is no local-key fallback.
+            return new ResponseProcessingFailedException(sprintf(
+                'Response processing failed: "The private key agent could not decrypt the assertion (%s)"',
+                PrivateKeyAgentFailure::describe($agentFailure)
+            ));
         }
 
         $failure = new ResponseProcessingFailedException(
@@ -991,15 +1004,27 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         $mustBeSigned = $this->shouldMessageBeSigned($message->getSspMessage(), $remoteEntity);
 
-        // The binding is checked before any key is loaded, so a rejected binding never reaches a signer.
-        if ($bindingUrn === Constants::BINDING_HTTP_POST) {
-            $this->sendUsingPostBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
-            return;
-        }
+        try {
+            // The binding is checked before any key is loaded, so a rejected binding never reaches a signer.
+            if ($bindingUrn === Constants::BINDING_HTTP_POST) {
+                $this->sendUsingPostBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
+                return;
+            }
 
-        if ($bindingUrn === Constants::BINDING_HTTP_REDIRECT) {
-            $this->sendUsingRedirectBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
-            return;
+            if ($bindingUrn === Constants::BINDING_HTTP_REDIRECT) {
+                $this->sendUsingRedirectBinding($message, $remoteEntity, $mustBeSigned, $useDefaultKey);
+                return;
+            }
+        } catch (PrivateKeyAgentExceptionInterface $failure) {
+            // Not chained: only the redacted agent diagnostic is kept. Nothing was sent and no local key is tried.
+            throw new EngineBlock_Corto_Module_Bindings_Exception(
+                sprintf(
+                    'The private key agent could not sign the message for entity "%s" (%s)',
+                    $remoteEntity->entityId,
+                    PrivateKeyAgentFailure::describe($failure)
+                ),
+                EngineBlock_Exception::CODE_ERROR
+            );
         }
 
         throw new EngineBlock_Corto_Module_Bindings_Exception('Unsupported Binding');
@@ -1179,7 +1204,8 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
     /**
      * Selects the route key, or the default key when forced, with the signature method configured for the
-     * remote entity. An unsupported method is rejected; another method is never substituted.
+     * remote entity. An unsupported method is rejected; another method is never substituted. An agent key pair
+     * signs through the private key agent with its certificate; no local private key is loaded for it.
      *
      * @return array{SignatureAlgorithmInterface, KeyInfo}
      */
@@ -1189,10 +1215,15 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $signatureMethod = $remoteEntity->getCoins()->signatureMethod();
 
         try {
-            $signer = $this->getSignerFactory()->forLocalKey(
-                XmlSecurityPrivateKey::fromFile($keyPair->getPrivateKey()->filePath()),
-                $signatureMethod
-            );
+            $signer = $keyPair->usesPrivateKeyAgent()
+                ? $this->getSignerFactory()->forAgentCertificate(
+                    new XmlSecurityCertificate(PEM::fromString($keyPair->getCertificate()->toPem())),
+                    $signatureMethod
+                )
+                : $this->getSignerFactory()->forLocalKey(
+                    XmlSecurityPrivateKey::fromFile($keyPair->getPrivateKey()->filePath()),
+                    $signatureMethod
+                );
         } catch (UnsupportedSignatureAlgorithmException $exception) {
             throw EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException::forRemoteEntity(
                 $exception->getAlgorithm(),
@@ -1274,11 +1305,15 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * D3: only EngineBlock's default key decrypts received assertions.
+     * Only EngineBlock's default key decrypts received assertions, independent of the route key of the original
+     * request. A local default key exposes only its own private key; an agent default key exposes none and marks
+     * the service provider as using the agent, whose decryption candidates are limited to the default certificate.
      */
-    private function bundleServiceProvider(string $serviceEntityId, string $expectedDestination): BundleServiceProvider
-    {
-        $keyPair = $this->_server->getSigningCertificates(true);
+    private function bundleServiceProvider(
+        string $serviceEntityId,
+        string $expectedDestination,
+        EngineBlock_X509_KeyPair $keyPair
+    ): BundleServiceProvider {
         $configuration = [
             'entityId' => $serviceEntityId,
             'assertionConsumerUrl' => $expectedDestination,
@@ -1292,6 +1327,12 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             ],
         ];
 
+        if ($keyPair->usesPrivateKeyAgent()) {
+            $configuration['privateKeyAgent'] = true;
+
+            return new BundleServiceProvider($configuration);
+        }
+
         $privateKey = $keyPair->getPrivateKey();
         if ($privateKey) {
             $configuration['privateKeys'] = [
@@ -1300,6 +1341,11 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         }
 
         return new BundleServiceProvider($configuration);
+    }
+
+    private function getDefaultDecryptionKeyPair(): EngineBlock_X509_KeyPair
+    {
+        return $this->_server->getSigningCertificates(true);
     }
 
     private function bundleIdentityProvider(IdentityProvider $identityProvider): BundleIdentityProvider
@@ -1363,12 +1409,13 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $xpath->registerNamespace('saml', Constants::NS_SAML);
         $xpath->registerNamespace('ds', Constants::NS_XDSIG);
         $xpath->registerNamespace('xenc', Constants::NS_XENC);
+        $xpath->registerNamespace('xenc11', XmlSecurityConstants::NS_XENC11);
 
         return iterator_to_array($xpath->query($expression, $context), false);
     }
 
     /**
-     * C4: every EncryptedAssertion must carry exactly one EncryptedKey, inline in the KeyInfo of its
+     * Every EncryptedAssertion must carry exactly one EncryptedKey, inline in the KeyInfo of its
      * EncryptedData, and no RetrievalMethod. Checked on the received XML, as parsing drops sibling keys.
      */
     private function assertSupportedEncryptionLayouts(Element $root): void
@@ -1389,7 +1436,61 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
     }
 
     /**
-     * C1: EngineBlock allows a missing Destination only on unsigned responses, where filling in the
+     * Enforces default-only decryption and supported key transport before any private key agent call.
+     *
+     * Every certificate an EncryptedKey names must be the default decryption certificate: a hint for any other
+     * certificate is rejected, even next to the default one. Key transport is limited to RSA-OAEP with parameters
+     * the agent mapping handles. xml-security asks the agent for SHA-256 when xmlenc11#rsa-oaep has no DigestMethod
+     * or MGF, while the default is SHA-1, so that form is rejected instead of sending a guessed digest. Local
+     * decryption is unaffected.
+     */
+    private function assertAgentDecryptionPreconditions(Element $root, EngineBlock_X509_KeyPair $decryptionKeyPair): void
+    {
+        $encryptedKeys = $this->query($root, './saml:EncryptedAssertion/xenc:EncryptedData/ds:KeyInfo/xenc:EncryptedKey');
+        if ($encryptedKeys === [] || !$decryptionKeyPair->usesPrivateKeyAgent()) {
+            return;
+        }
+
+        $defaultCertificate = base64_decode($decryptionKeyPair->getCertificate()->toCertData(), true);
+        foreach ($encryptedKeys as $encryptedKey) {
+            foreach ($this->query($encryptedKey, './ds:KeyInfo//ds:X509Certificate') as $namedCertificate) {
+                $certificate = base64_decode(preg_replace('/\s+/', '', $namedCertificate->textContent) ?? '', true);
+                if (!is_string($certificate) || !hash_equals((string) $defaultCertificate, $certificate)) {
+                    throw new EngineBlock_Corto_Module_Bindings_VerificationException(
+                        'The EncryptedKey names a certificate other than the default decryption certificate',
+                        EngineBlock_Exception::CODE_NOTICE
+                    );
+                }
+            }
+        }
+
+        foreach ($encryptedKeys as $encryptedKey) {
+            $algorithm = $this->getEncryptionMethodAlgorithm($encryptedKey);
+            if ($algorithm === XmlSecurityConstants::KEY_TRANSPORT_OAEP_MGF1P) {
+                continue;
+            }
+
+            if ($algorithm !== XmlSecurityConstants::KEY_TRANSPORT_OAEP) {
+                throw new EngineBlock_Corto_Module_Bindings_VerificationException(
+                    sprintf('Key transport algorithm "%s" is not supported with the private key agent', $algorithm),
+                    EngineBlock_Exception::CODE_NOTICE
+                );
+            }
+
+            $hasDigest = $this->query($encryptedKey, './xenc:EncryptionMethod/ds:DigestMethod') !== [];
+            $hasMgf = $this->query($encryptedKey, './xenc:EncryptionMethod/xenc11:MGF') !== [];
+            if (!$hasDigest || !$hasMgf) {
+                throw new EngineBlock_Corto_Module_Bindings_VerificationException(
+                    'Key transport "' . XmlSecurityConstants::KEY_TRANSPORT_OAEP . '" requires explicit DigestMethod '
+                    . 'and MGF parameters with the private key agent',
+                    EngineBlock_Exception::CODE_NOTICE
+                );
+            }
+        }
+    }
+
+    /**
+     * EngineBlock allows a missing Destination only on unsigned responses, where filling in the
      * expected destination changes no signed content. A present Destination is never changed.
      */
     private function fillMissingDestination(Element $root, string $expectedDestination): void

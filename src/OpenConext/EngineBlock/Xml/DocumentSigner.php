@@ -22,13 +22,16 @@ use Dom\Node;
 use Dom\XMLDocument;
 use OpenConext\EngineBlock\Exception\RuntimeException;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
+use OpenConext\EngineBlock\Saml2\Bundle\PrivateKeyAgentFailure;
+use SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface;
 use Surfnet\SamlBundle\Service\SigningService;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Surfnet\SamlBundle\Signing\Signable;
 use Throwable;
 
 /**
- * Signs metadata through the SAML bundle's SigningService, with RSA-SHA256 and the configured local key pair.
+ * Signs metadata through the SAML bundle's SigningService, with RSA-SHA256 and the selected key pair: a local
+ * key pair signs with its private key file, an agent key pair through the Private Key Agent without a local key.
  */
 class DocumentSigner implements DocumentSignerInterface
 {
@@ -63,7 +66,15 @@ class DocumentSigner implements DocumentSignerInterface
 
         $rootDeclaredDs = $rootNode->hasAttributeNS(self::NS_XMLNS, 'ds');
 
-        $this->signingService->sign($this->signable($rootNode), $this->toBundleKeyPair($signingKeyPair));
+        try {
+            $this->signingService->sign($this->signable($rootNode), $this->toBundleKeyPair($signingKeyPair));
+        } catch (PrivateKeyAgentExceptionInterface $failure) {
+            // Not chained: only the redacted agent diagnostic is kept. There is no local-key fallback.
+            throw new RuntimeException(sprintf(
+                'The private key agent could not sign the metadata (%s)',
+                PrivateKeyAgentFailure::describe($failure)
+            ));
+        }
 
         // xml-security declares xmlns:ds on the signed element; keep the declaration on ds:Signature as before.
         // Exclusive canonicalization only emits visibly used namespaces, so the signature is unaffected.
@@ -112,13 +123,20 @@ class DocumentSigner implements DocumentSignerInterface
             throw new RuntimeException('The metadata signing certificate was not loaded from a file');
         }
 
+        $keyPair = new KeyPair();
+        $keyPair->publicKeyFile = $certificateFile;
+
+        if ($signingKeyPair->usesPrivateKeyAgent()) {
+            $keyPair->usePrivateKeyAgent = true;
+            $keyPair->privateKeyFile = null;
+
+            return $keyPair;
+        }
+
         $privateKey = $signingKeyPair->getPrivateKey();
         if ($privateKey === null) {
             throw new RuntimeException('The metadata signing key pair has no private key');
         }
-
-        $keyPair = new KeyPair();
-        $keyPair->publicKeyFile = $certificateFile;
         $keyPair->privateKeyFile = $privateKey->getFilePath();
 
         return $keyPair;

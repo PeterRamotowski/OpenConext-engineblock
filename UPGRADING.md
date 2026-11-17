@@ -13,6 +13,24 @@ who are in the middle of a login during the upgrade must restart it.
   [docs/session_cutover.md](docs/session_cutover.md).
 - Present AuthnRequest signatures are always verified, even when signing is optional. Outgoing authentication
   requests expire after five minutes and accept one response, from the intended IdP at the intended ACS.
+- `encryption_keys` entries are validated when the container is built: every key needs `publicFile`, local keys need
+  `privateFile`, and unknown fields are rejected. Configure the SAML bundle through `encryption_keys` and
+  `private_key_agent` only; `surfnet_saml.hosted` and `surfnet_saml.private_key_agent` must not be set.
+- Optional Private Key Agent: set `backend: agent` on a key to let the agent hold its private key. Such a key has no
+  `privateFile`, and its `agent` section names the agent key, its bearer token and its operations. Every agent key
+  needs `sign`; only the `default` key may add `decrypt`, because only that key decrypts received assertions. Set
+  `private_key_agent.base_url` (and optionally `timeout`, `max_duration` and `allow_insecure_http`) when a key uses
+  the agent. See `config/packages/parameters.yml.dist`.
+  - Run `bin/console surfnet:saml:validate-private-key-agent` once the certificates are mounted; cache warmup needs
+    neither private keys, certificates nor tokens. Tokens are only resolved for agent operations. Rebuild the
+    container cache after changing a key's backend.
+  - An agent failure fails the login or metadata request with the generic error page. There are no retries and no
+    fallback to a local key.
+  - With an agent `default` key, encrypted assertions must use `xmlenc#rsa-oaep-mgf1p` or `xmlenc11#rsa-oaep` with
+    explicit `DigestMethod` and `MGF` parameters; parameterless `xmlenc11#rsa-oaep` is rejected before the agent is
+    called. A local `default` key still decrypts it.
+  - Replacing the `default` key is a coordinated change of the decryption identity: EngineBlock never decrypts with
+    another key ID. Signing and metadata rollover work as before by adding a key ID.
 
 ## 7.2.0
 

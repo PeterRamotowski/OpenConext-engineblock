@@ -23,6 +23,8 @@ use OpenConext\EngineBlock\Metadata\MetadataRepository\Filter\RemoveOtherWorkflo
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\Visitor\DisableDisallowedEntitiesInWayfVisitor;
 use OpenConext\EngineBlock\Metadata\Service;
+use OpenConext\EngineBlock\Metadata\X509\EncryptionKeysConfiguration;
+use OpenConext\EngineBlock\Metadata\X509\InvalidEncryptionKeyConfigurationException;
 
 class EngineBlock_Corto_Adapter
 {
@@ -460,30 +462,20 @@ class EngineBlock_Corto_Adapter
             throw new EngineBlock_Corto_ProxyServer_Exception("No encryption/signing keys defined!");
         }
 
-        $publicKeyFactory = new EngineBlock_X509_CertificateFactory();
-        $keyPairs = array();
-        foreach ($keysConfig as $keyId => $keyConfig) {
-            if (!isset($keyConfig['privateFile'])) {
-                $this->_getLogger()->warning(
-                    'Reference to private key file not found for key: ' . $keyId . ' skipping keypair.'
-                );
-                continue;
-            }
-            if (!isset($keyConfig['publicFile'])) {
-                $this->_getLogger()->warning('Reference to public key file not found for key: ' . $keyId);
-                continue;
-            }
-
-            $keyPairs[$keyId] = new EngineBlock_X509_KeyPair(
-                $publicKeyFactory->fromFile($keyConfig['publicFile']),
-                new EngineBlock_X509_PrivateKey($keyConfig['privateFile'])
-            );
+        try {
+            $configuredKeys = EncryptionKeysConfiguration::fromArray($keysConfig, false);
+        } catch (InvalidEncryptionKeyConfigurationException $exception) {
+            throw new EngineBlock_Exception($exception->getMessage(), EngineBlock_Exception::CODE_ERROR, $exception);
         }
 
-        if (empty($keyPairs)) {
-            throw new EngineBlock_Exception(
-                'No (valid) keypairs found in configuration! Please configure at least 1 keypair under encryption.keys'
-            );
+        $publicKeyFactory = new EngineBlock_X509_CertificateFactory();
+        $keyPairs = array();
+        foreach ($configuredKeys->all() as $keyId => $configuredKey) {
+            $certificate = $publicKeyFactory->fromFile($configuredKey->publicFile);
+            // An agent key pair is certificate-only: no local private-key object is ever constructed for it.
+            $keyPairs[$keyId] = $configuredKey->usesPrivateKeyAgent()
+                ? EngineBlock_X509_KeyPair::forPrivateKeyAgent($certificate)
+                : new EngineBlock_X509_KeyPair($certificate, new EngineBlock_X509_PrivateKey($configuredKey->privateFile));
         }
 
         $proxyServer->setKeyPairs($keyPairs);

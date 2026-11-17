@@ -18,6 +18,9 @@
 
 namespace OpenConext\EngineBlockBundle\DependencyInjection;
 
+use OpenConext\EngineBlock\Metadata\X509\EncryptionKeysConfiguration;
+use OpenConext\EngineBlock\Metadata\X509\InvalidEncryptionKeyConfigurationException;
+use OpenConext\EngineBlock\Saml2\Bundle\SamlBundleConfiguration;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Exception\InvalidArgumentException;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -25,27 +28,49 @@ use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 
 final class OpenConextEngineBlockExtension extends Extension implements PrependExtensionInterface
 {
-    public const DEFAULT_PUBLIC_KEY_FILE = 'engineblock.saml_bundle.default_public_key_file';
-    public const DEFAULT_PRIVATE_KEY_FILE = 'engineblock.saml_bundle.default_private_key_file';
-
     public function load(array $configs, ContainerBuilder $container): void
     {
     }
 
     /**
-     * Exposes the files of the "default" encryption key as scalar parameters before the bundle configuration
-     * is resolved, so the surfnet_saml hosted entities use the same identity as EngineBlock.
+     * Derives the complete surfnet_saml hosted and private_key_agent configuration from the encryption_keys and
+     * private_key_agent parameters, so the bundle uses the same identities and backends as EngineBlock.
+     * Only the configuration is validated; no key or certificate file is read.
      */
     public function prepend(ContainerBuilder $container): void
     {
-        $defaultKey = $container->getParameter('encryption_keys')['default'] ?? null;
-        if (!is_array($defaultKey) || !isset($defaultKey['publicFile'], $defaultKey['privateFile'])) {
-            throw new InvalidArgumentException(
-                'The "encryption_keys" parameter must configure a "default" key with a publicFile and privateFile'
-            );
+        foreach ($container->getExtensionConfig('surfnet_saml') as $config) {
+            foreach (['hosted', 'private_key_agent'] as $section) {
+                if (is_array($config) && array_key_exists($section, $config)) {
+                    throw new InvalidArgumentException(sprintf(
+                        'Do not configure surfnet_saml.%s: EngineBlock derives it from the "encryption_keys" and '
+                        . '"private_key_agent" parameters',
+                        $section
+                    ));
+                }
+            }
         }
 
-        $container->setParameter(self::DEFAULT_PUBLIC_KEY_FILE, $defaultKey['publicFile']);
-        $container->setParameter(self::DEFAULT_PRIVATE_KEY_FILE, $defaultKey['privateFile']);
+        $agentSettings = $container->hasParameter('private_key_agent')
+            ? $container->getParameter('private_key_agent') ?? []
+            : [];
+        if (!is_array($agentSettings)) {
+            throw new InvalidArgumentException('The "private_key_agent" parameter must be a mapping');
+        }
+
+        $encryptionKeys = $container->getParameter('encryption_keys');
+        try {
+            $configuration = SamlBundleConfiguration::build(
+                EncryptionKeysConfiguration::fromArray($encryptionKeys),
+                $agentSettings
+            );
+        } catch (InvalidEncryptionKeyConfigurationException $exception) {
+            throw new InvalidArgumentException($exception->getMessage(), 0, $exception);
+        }
+
+        $container->prependExtensionConfig('surfnet_saml', $configuration);
+        // Only the bundle's lazy token provider resolves agent tokens; EngineBlock's services read the parameter
+        // on every request and must neither resolve nor carry them.
+        $container->setParameter('encryption_keys', EncryptionKeysConfiguration::withoutAgentTokens($encryptionKeys));
     }
 }

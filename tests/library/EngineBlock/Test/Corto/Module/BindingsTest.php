@@ -32,7 +32,14 @@ use OpenConext\EngineBlockBridge\Logger\LoginLogger;
 use OpenConext\EngineBlockBundle\Bridge\DiContainerRuntime;
 use OpenConext\EngineBlockBundle\Service\WayfRenderer;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\InMemoryMetadataRepository;
+use OpenConext\EngineBlock\Metadata\X509\EncryptionKeysConfiguration;
+use OpenConext\EngineBlock\Saml2\Bundle\DefaultKeyDecryptionKeyMap;
+use OpenConext\EngineBlock\Saml2\Bundle\FakePrivateKeyAgent;
 use OpenConext\EngineBlock\Saml2\Bundle\GeneratedKeyPair;
+use OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter;
+use OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier;
+use OpenConext\EngineBlock\Saml2\Bundle\SamlBundleConfiguration;
+use OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor;
 use OpenConext\EngineBlockBundle\Exception\ResponseProcessingFailedException;
 use OpenConext\EngineBlockBundle\Configuration\FeatureConfiguration;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\XmlSecurity;
@@ -42,6 +49,8 @@ use Psr\Log\NullLogger;
 use SimpleSAML\SAML2\Assertion\Validation\ConstraintValidator\NotBefore;
 use SimpleSAML\SAML2\Assertion\Validation\ConstraintValidator\NotOnOrAfter;
 use SimpleSAML\SAML2\Assertion\Validation\Result;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Compat\AbstractContainer;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Constants;
@@ -50,7 +59,12 @@ use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
+use Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
+use Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter;
+use Surfnet\SamlBundle\SAML2\Response\LocalAssertionDecrypter;
+use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Symfony\Component\Clock\MockClock;
 
 /**
@@ -120,6 +134,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     protected function tearDown(): void
     {
+        AlgorithmRegistrar::reset();
         ContainerSingleton::setContainer($this->originalSamlContainer);
         EngineBlock_ApplicationSingleton::getInstance()->setHttpRequest($this->originalHttpRequest);
         $this->setDiContainer($this->originalDiContainer);
@@ -1067,6 +1082,319 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
 
         $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+    }
+
+    public function testAgentRouteKeySignsTheOutgoingResponseWithoutALocalPrivateKey()
+    {
+        $agent = $this->useAgentKeys();
+        $twig = $this->createMock(Twig\Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with('@theme/Authentication/View/Proxy/form.html.twig', $this->callback(function (array $parameters) use (&$message) {
+                $message = $parameters['message'];
+                return true;
+            }))
+            ->willReturn('rendered');
+
+        $response = $this->createPostResponse();
+        $response->setDeliverByBinding(Constants::BINDING_HTTP_POST);
+        $this->createBindingsWithTwig($twig)->send(
+            $response,
+            new ServiceProvider('https://sp.example.edu', signatureMethod: self::RSA_SHA384, signResponse: true)
+        );
+
+        $this->assertSame(['eb-rollover', 'eb-rollover'], $agent->keysUsedFor('sign'));
+        $this->assertSame([], $agent->keysUsedFor('decrypt'));
+        $sentResponse = Response::fromXML(DOMDocumentFactory::fromString(base64_decode($message, true))->documentElement);
+        $verifier = XmlSecurity::verifier(GeneratedKeyPair::named('eb-rollover')->certificatePem(), self::RSA_SHA384);
+        $this->assertInstanceOf(Response::class, $sentResponse->verify($verifier));
+        $this->assertInstanceOf(Assertion::class, $sentResponse->getAssertions()[0]->verify($verifier));
+    }
+
+    #[DataProvider('agentRedirectProvider')]
+    public function testAgentSignsRedirectRequestsOnlyWhenRequired(bool $mustBeSigned, bool $useDefaultKey, array $expectedKeys)
+    {
+        $agent = $this->useAgentKeys();
+        $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(
+            ['destination' => 'https://idp.example.com/sso', 'issuer' => self::EB_SP_ENTITY_ID],
+            'state'
+        );
+        $request->setDeliverByBinding(Constants::BINDING_HTTP_REDIRECT);
+
+        $this->bindings->send(
+            $request,
+            new IdentityProvider('https://idp.example.com', requestsMustBeSigned: $mustBeSigned),
+            $useDefaultKey
+        );
+
+        $this->assertSame($expectedKeys, $agent->keysUsedFor('sign'));
+        Phake::verify($this->proxyServer)->redirect(Phake::capture($redirectUrl), Phake::capture($redirectedMessage));
+        $this->assertSame($mustBeSigned, str_contains($redirectUrl, '&Signature='));
+    }
+
+    public static function agentRedirectProvider(): array
+    {
+        return [
+            'unsigned request makes no agent call' => [false, false, []],
+            'signed request uses the route key' => [true, false, ['eb-rollover']],
+            'forced default key, as after the WAYF or for Stepup' => [true, true, ['eb-default']],
+        ];
+    }
+
+    public function testAgentSigningFailureSendsNothingAndKeepsOnlyARedactedDiagnostic()
+    {
+        $agent = $this->useAgentKeys();
+        $agent->beUnreachable();
+        $twig = $this->createMock(Twig\Environment::class);
+        $twig->expects($this->never())->method('render');
+        $response = $this->createPostResponse();
+        $response->setDeliverByBinding(Constants::BINDING_HTTP_POST);
+
+        try {
+            $this->createBindingsWithTwig($twig)->send($response, new ServiceProvider('https://sp.example.edu'));
+            $this->fail('Sending must fail when the agent is unreachable');
+        } catch (EngineBlock_Corto_Module_Bindings_Exception $exception) {
+            $this->assertStringContainsString('AgentUnavailableException: Agent is unreachable.', $exception->getMessage());
+            $this->assertNull($exception->getPrevious());
+        }
+
+        $this->assertCount(1, $agent->requests, 'An agent failure is not retried');
+        Phake::verify($this->proxyServer, Phake::never())->sendOutput(Phake::anyParameters());
+    }
+
+    public function testAgentDecryptsWithOnlyTheDefaultKeyWhenAnotherRouteKeyIsSelected()
+    {
+        $agent = $this->useAgentKeys();
+        Phake::when($this->proxyServer)->getSigningCertificates(false)
+            ->thenThrow(new RuntimeException('The route key must not be used for decryption'));
+        $this->postMessage('SAMLResponse', $this->encryptedResponseXml('eb-default'));
+
+        $response = $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+
+        $this->assertSame('john-doe', $response->getNameIdValue());
+        $this->assertSame(['eb-default'], $agent->keysUsedFor('decrypt'));
+        $this->assertSame([], $agent->keysUsedFor('sign'));
+    }
+
+    public function testAgentDecryptionNeverTriesKeysOutsideTheDefaultScope()
+    {
+        $agent = $this->useAgentKeys();
+        $this->postMessage('SAMLResponse', $this->encryptedResponseXml('eb-other'));
+        $this->expectException(ResponseProcessingFailedException::class);
+
+        try {
+            $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+        } finally {
+            // The registered agent could decrypt with "eb-other", but only the default key is a candidate.
+            $this->assertSame(['eb-default'], $agent->keysUsedFor('decrypt'));
+            Phake::verify($this->proxyServer, Phake::never())->consumePendingRequest(Phake::anyParameters());
+        }
+    }
+
+    #[DataProvider('unrelatedCertificateHintProvider')]
+    public function testAgentDecryptionRejectsAnyUnrelatedCertificateHintBeforeAnAgentCall(
+        string $recipient,
+        array $namedCertificates
+    ) {
+        $agent = $this->useAgentKeys();
+        $this->postMessage('SAMLResponse', $this->encryptedResponseXml($recipient, namedCertificates: $namedCertificates));
+
+        try {
+            $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+            $this->fail('An EncryptedKey naming an unrelated certificate must be rejected');
+        } catch (EngineBlock_Corto_Module_Bindings_VerificationException $exception) {
+            $this->assertStringContainsString(
+                'names a certificate other than the default decryption certificate',
+                $exception->getMessage()
+            );
+        }
+
+        $this->assertSame([], $agent->requests);
+    }
+
+    public static function unrelatedCertificateHintProvider(): array
+    {
+        return [
+            'only an unrelated certificate' => ['eb-other', ['eb-other']],
+            'the default and an unrelated certificate' => ['eb-default', ['eb-default', 'eb-other']],
+            'an unrelated and the default certificate' => ['eb-default', ['eb-other', 'eb-default']],
+        ];
+    }
+
+    public function testAgentDecryptsWhenTheEncryptedKeyNamesOnlyTheDefaultCertificate()
+    {
+        $agent = $this->useAgentKeys();
+        $this->postMessage('SAMLResponse', $this->encryptedResponseXml('eb-default', namedCertificates: ['eb-default']));
+
+        $response = $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+
+        $this->assertSame('john-doe', $response->getNameIdValue());
+        $this->assertSame(['eb-default'], $agent->keysUsedFor('decrypt'));
+    }
+
+    public function testParameterlessRsaOaepIsRejectedBeforeAnAgentCall()
+    {
+        $agent = $this->useAgentKeys();
+        $this->postMessage(
+            'SAMLResponse',
+            $this->encryptedResponseXml('eb-default', XmlSecurityConstants::KEY_TRANSPORT_OAEP)
+        );
+
+        try {
+            $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+            $this->fail('Parameterless xmlenc11#rsa-oaep must be rejected in agent mode');
+        } catch (EngineBlock_Corto_Module_Bindings_VerificationException $exception) {
+            $this->assertStringContainsString('requires explicit DigestMethod and MGF', $exception->getMessage());
+        }
+
+        $this->assertSame([], $agent->requests);
+    }
+
+    public function testParameterlessRsaOaepStillDecryptsWithALocalDefaultKey()
+    {
+        $this->useIdentityProvider();
+        $this->enableEncryptedAssertions();
+        $encrypted = XmlSecurity::encryptAssertion(
+            $this->documentElement($this->signedAssertionXml($this->assertionXml())),
+            file_get_contents(__DIR__ . '/test.pem.crt'),
+            null,
+            XmlSecurityConstants::KEY_TRANSPORT_OAEP
+        );
+        $this->postMessage('SAMLResponse', $this->signedResponseXml(
+            $this->responseXml(assertions: $this->saveXml($encrypted)),
+            'idp'
+        ));
+
+        $this->assertSame('john-doe', $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS)->getNameIdValue());
+    }
+
+    public function testAgentDecryptionOutageFailsWithoutFallbackOrSession()
+    {
+        $agent = $this->useAgentKeys();
+        $agent->failWithStatus(503);
+        $this->postMessage('SAMLResponse', $this->encryptedResponseXml('eb-default'));
+
+        try {
+            $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+            $this->fail('Decryption must fail when the agent is unavailable');
+        } catch (ResponseProcessingFailedException $exception) {
+            $this->assertStringContainsString(
+                'AgentUnavailableException: Agent temporarily unavailable (HTTP 503).',
+                $exception->getMessage()
+            );
+            $this->assertNull($exception->getPrevious());
+        }
+
+        $this->assertCount(1, $agent->requests, 'An agent failure is not retried');
+        Phake::verify($this->proxyServer, Phake::never())->consumePendingRequest(Phake::anyParameters());
+    }
+
+    /**
+     * The default key decrypts and signs through agent key "eb-default", route key "rollover" signs through
+     * "eb-rollover". The agent also holds "eb-other" with "decrypt", so the bundle-wide key name resolver is
+     * broader than EngineBlock's default-only decryption scope. No local private key is configured.
+     */
+    private function useAgentKeys(): FakePrivateKeyAgent
+    {
+        $encryptionKeys = [
+            'default' => self::agentKeyConfiguration('eb-default', ['sign', 'decrypt']),
+            'rollover' => self::agentKeyConfiguration('eb-rollover', ['sign']),
+        ];
+        $agentKeys = SamlBundleConfiguration::build(EncryptionKeysConfiguration::fromArray($encryptionKeys), [])
+            ['private_key_agent']['keys'];
+        $agentKeys['eb-other'] = [
+            'certificate_file' => GeneratedKeyPair::named('eb-other')->certificateFile(),
+            'token' => 'other-token',
+            'operations' => ['decrypt'],
+        ];
+
+        $agent = new FakePrivateKeyAgent(array_map(
+            static fn (string $name): string => GeneratedKeyPair::named($name)->privateKeyPem(),
+            ['eb-default' => 'eb-default', 'eb-rollover' => 'eb-rollover', 'eb-other' => 'eb-other']
+        ));
+        $agent->register($agentKeys);
+
+        Phake::when($this->proxyServer)->getSigningCertificates(true)
+            ->thenReturn(EngineBlock_X509_KeyPair::forPrivateKeyAgent(self::certificate('eb-default')));
+        Phake::when($this->proxyServer)->getSigningCertificates(false)
+            ->thenReturn(EngineBlock_X509_KeyPair::forPrivateKeyAgent(self::certificate('eb-rollover')));
+
+        // The decrypter chain of config/services/saml_bundle.yml, for these keys.
+        $logger = new NullLogger();
+        $decrypter = new PolicyCheckingAssertionDecrypter(new AgentAssertionDecrypter(
+            new LocalAssertionDecrypter(new PrivateKeyLoader()),
+            static fn () => DefaultKeyDecryptionKeyMap::create($encryptionKeys),
+            $logger
+        ));
+        $processor = new VerifiedResponseProcessor(
+            new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), $logger, null, $decrypter),
+            new ResponseEnvelopeVerifier($logger),
+            $decrypter
+        );
+        $symfonyContainer = (new ReflectionProperty(EngineBlock_Application_DiContainer::class, 'container'))
+            ->getValue($this->originalDiContainer);
+        $diContainer = Phake::partialMock(get_class($this->originalDiContainer), $symfonyContainer);
+        Phake::when($diContainer)->getSamlVerifiedResponseProcessor()->thenReturn($processor);
+        $this->setDiContainer($diContainer);
+
+        $this->useIdentityProvider();
+        $this->enableEncryptedAssertions();
+
+        return $agent;
+    }
+
+    private static function agentKeyConfiguration(string $name, array $operations): array
+    {
+        return [
+            'backend' => 'agent',
+            'publicFile' => GeneratedKeyPair::named($name)->certificateFile(),
+            'agent' => ['key' => $name, 'token' => $name . '-token', 'operations' => $operations],
+        ];
+    }
+
+    private function enableEncryptedAssertions(): void
+    {
+        $features = Phake::mock(FeatureConfiguration::class);
+        Phake::when($features)->isEnabled('eb.encrypted_assertions')->thenReturn(true);
+        (new ReflectionProperty(EngineBlock_Corto_Module_Bindings::class, '_featureConfiguration'))
+            ->setValue($this->bindings, $features);
+    }
+
+    /**
+     * A signed Response with a signed assertion encrypted to the certificate of $recipient, optionally naming
+     * certificates in the KeyInfo of the EncryptedKey.
+     *
+     * @param list<string> $namedCertificates
+     */
+    private function encryptedResponseXml(
+        string $recipient,
+        string $keyTransportAlgorithm = XmlSecurityConstants::KEY_TRANSPORT_OAEP_MGF1P,
+        array $namedCertificates = []
+    ): string {
+        $encrypted = XmlSecurity::encryptAssertion(
+            $this->documentElement($this->signedAssertionXml($this->assertionXml())),
+            GeneratedKeyPair::named($recipient)->certificatePem(),
+            null,
+            $keyTransportAlgorithm
+        );
+
+        if ($namedCertificates !== []) {
+            $encryptionMethod = $encrypted->getElementsByTagNameNS(Constants::NS_XENC, 'EncryptedKey')->item(0)
+                ->getElementsByTagNameNS(Constants::NS_XENC, 'EncryptionMethod')->item(0);
+            $keyInfo = $this->documentElement(sprintf(
+                '<ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">%s</ds:KeyInfo>',
+                implode('', array_map(
+                    static fn (string $name): string => sprintf(
+                        '<ds:X509Data><ds:X509Certificate>%s</ds:X509Certificate></ds:X509Data>',
+                        GeneratedKeyPair::named($name)->certificateData()
+                    ),
+                    $namedCertificates
+                ))
+            ));
+            $encryptionMethod->after($encrypted->ownerDocument->importNode($keyInfo, true));
+        }
+
+        return $this->signedResponseXml($this->responseXml(assertions: $this->saveXml($encrypted)), 'idp');
     }
 
     private static function encryptedKey(string $algorithm): string

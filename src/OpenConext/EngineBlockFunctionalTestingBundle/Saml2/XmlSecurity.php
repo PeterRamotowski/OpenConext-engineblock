@@ -165,23 +165,28 @@ final class XmlSecurity
     /**
      * Encrypt a (standalone, possibly signed) assertion like saml2 4.x did: AES-128-CBC, with the session key
      * transported with RSA-OAEP to the certificate, or directly with a shared (symmetric) key.
+     * The key transport algorithm is used without explicit OAEP parameters.
      */
-    public static function encryptAssertion(Element $assertion, ?string $certificate, ?string $sharedKey): Element
-    {
+    public static function encryptAssertion(
+        Element $assertion,
+        ?string $certificate,
+        ?string $sharedKey,
+        string $keyTransportAlgorithm = C::KEY_TRANSPORT_OAEP_MGF1P
+    ): Element {
         $plaintext = $assertion->ownerDocument->saveXml($assertion);
         $blockCipher = new EncryptionMethod(AnyURIValue::fromString(C::BLOCK_ENC_AES128));
 
         if ($certificate !== null) {
             $sessionKey = SymmetricKey::generate(16);
             $keyTransport = (new KeyTransportAlgorithmFactory())->getAlgorithm(
-                C::KEY_TRANSPORT_OAEP_MGF1P,
+                $keyTransportAlgorithm,
                 self::certificate($certificate)->getPublicKey()
             );
             $keyInfo = new KeyInfo([
                 EncryptedKey::fromKey(
                     $sessionKey,
                     $keyTransport,
-                    new EncryptionMethod(AnyURIValue::fromString(C::KEY_TRANSPORT_OAEP_MGF1P)),
+                    new EncryptionMethod(AnyURIValue::fromString($keyTransportAlgorithm)),
                 ),
             ]);
         } elseif ($sharedKey !== null) {

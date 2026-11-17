@@ -24,23 +24,23 @@ use OpenConext\EngineBlockBundle\Exception\UnknownKeyIdException;
 
 class KeyPairFactory implements KeyPairFactoryInterface
 {
-    const DEFAULT_KEY_PAIR_IDENTIFIER = 'default';
+    const DEFAULT_KEY_PAIR_IDENTIFIER = EncryptionKeysConfiguration::DEFAULT_KEY_ID;
 
-    private array $keyPairConfiguration = [];
+    private EncryptionKeysConfiguration $keyPairConfiguration;
 
     /**
-     * @param array $keyPairConfiguration
+     * @throws InvalidEncryptionKeyConfigurationException
      */
     public function __construct(array $keyPairConfiguration)
     {
-        $this->keyPairConfiguration = $keyPairConfiguration;
+        $this->keyPairConfiguration = EncryptionKeysConfiguration::fromArray($keyPairConfiguration, false);
     }
 
     /**
-     * @param string $identifier
-     * @return X509KeyPair
+     * An agent key pair carries only its certificate: no local private-key object is constructed for it.
      *
      * @throws RuntimeException
+     * @throws UnknownKeyIdException
      */
     public function buildFromIdentifier(?string $identifier): X509KeyPair
     {
@@ -49,16 +49,17 @@ class KeyPairFactory implements KeyPairFactoryInterface
         }
         Assertion::nonEmptyString($identifier, 'identifier');
 
-        if (array_key_exists($identifier, $this->keyPairConfiguration)) {
-            $keys = $this->keyPairConfiguration[$identifier];
-            $privateKey = new X509PrivateKey($keys['privateFile']);
-            $publicKey = new X509Certificate(
-                openssl_x509_read(file_get_contents($keys['publicFile'])),
-                $keys['publicFile']
-            );
-            return new X509KeyPair($publicKey, $privateKey);
+        $key = $this->keyPairConfiguration->get($identifier);
+        $certificate = new X509Certificate(
+            openssl_x509_read(file_get_contents($key->publicFile)),
+            $key->publicFile
+        );
+
+        if ($key->usesPrivateKeyAgent()) {
+            return X509KeyPair::forPrivateKeyAgent($certificate);
         }
-        throw new UnknownKeyIdException($identifier);
+
+        return new X509KeyPair($certificate, new X509PrivateKey((string) $key->privateFile));
     }
 
     /**
@@ -70,7 +71,7 @@ class KeyPairFactory implements KeyPairFactoryInterface
     {
         $pairs = [];
 
-        foreach (array_keys($this->keyPairConfiguration) as $keyId) {
+        foreach (array_keys($this->keyPairConfiguration->all()) as $keyId) {
             $pairs[] = $this->buildFromIdentifier((string)$keyId);
         }
 

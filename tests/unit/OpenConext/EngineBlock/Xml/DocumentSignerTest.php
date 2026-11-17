@@ -22,9 +22,16 @@ use OpenConext\EngineBlock\Exception\RuntimeException;
 use OpenConext\EngineBlock\Metadata\X509\X509CertificateFactory;
 use OpenConext\EngineBlock\Metadata\X509\X509KeyPair;
 use OpenConext\EngineBlock\Metadata\X509\X509PrivateKey;
+use OpenConext\EngineBlock\Saml2\Bundle\FakePrivateKeyAgent;
+use OpenConext\EngineBlock\Saml2\Bundle\GeneratedKeyPair;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
+use SimpleSAML\SAML2\XML\md\EntityDescriptor;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Constants as C;
+use Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar;
 use Surfnet\SamlBundle\Service\SigningService;
 
 class DocumentSignerTest extends TestCase
@@ -122,5 +129,71 @@ XML;
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Could not locate root element to sign');
         $output = $signer->sign($xml, $keyPair);
+    }
+
+    public function test_an_agent_key_pair_signs_through_the_private_key_agent_without_a_local_key()
+    {
+        $agent = $this->registerAgent();
+        $certificate = (new X509CertificateFactory())->fromFile(GeneratedKeyPair::named('metadata')->certificateFile());
+
+        $output = $this->signer()->sign($this->metadataXml(), X509KeyPair::forPrivateKeyAgent($certificate));
+
+        $this->assertSame(['eb-metadata'], $agent->keysUsedFor('sign'));
+        $entityDescriptor = EntityDescriptor::fromXML(DOMDocumentFactory::fromString($output)->documentElement);
+        $verifier = (new SignatureAlgorithmFactory())->getAlgorithm(
+            C::SIG_RSA_SHA256,
+            GeneratedKeyPair::named('metadata')->certificate()->getPublicKey()
+        );
+        $this->assertInstanceOf(EntityDescriptor::class, $entityDescriptor->verify($verifier));
+    }
+
+    public function test_an_agent_outage_fails_metadata_signing_with_redacted_diagnostics()
+    {
+        $agent = $this->registerAgent();
+        $agent->failWithStatus(503);
+        $certificate = (new X509CertificateFactory())->fromFile(GeneratedKeyPair::named('metadata')->certificateFile());
+
+        try {
+            $this->signer()->sign($this->metadataXml(), X509KeyPair::forPrivateKeyAgent($certificate));
+            $this->fail('Metadata signing must fail when the agent is unavailable');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('AgentUnavailableException', $exception->getMessage());
+            $this->assertNull($exception->getPrevious());
+            $this->assertCount(1, $agent->requests, 'The agent is called once, without retries');
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        AlgorithmRegistrar::reset();
+    }
+
+    private function registerAgent(): FakePrivateKeyAgent
+    {
+        $keyPair = GeneratedKeyPair::named('metadata');
+        $agent = new FakePrivateKeyAgent(['eb-metadata' => $keyPair->privateKeyPem()]);
+        $agent->register([
+            'eb-metadata' => ['certificate_file' => $keyPair->certificateFile(), 'token' => 'token', 'operations' => ['sign']],
+        ]);
+
+        return $agent;
+    }
+
+    private function signer(): DocumentSigner
+    {
+        return new DocumentSigner(new SigningService(new KeyLoader(), new PrivateKeyLoader()));
+    }
+
+    private function metadataXml(): string
+    {
+        return <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- https://support.example.org/terms-en -->
+<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" ID="EB12345" entityID="https://engine.example.org">
+   <md:SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+      <md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://example.com/acs" index="1" />
+   </md:SPSSODescriptor>
+</md:EntityDescriptor>
+XML;
     }
 }

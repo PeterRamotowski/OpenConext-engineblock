@@ -64,6 +64,29 @@ class KeyPairFactoryTest extends TestCase
         $this->assertEquals(file_get_contents('file://' . __DIR__ . '/test2.pem.crt'), $keyPairs[1]->getCertificate()->toPem());
     }
 
+    public function test_agent_key_pairs_carry_only_their_certificate()
+    {
+        $factory = new KeyPairFactory([
+            'default' => [
+                'publicFile' => 'file://' . __DIR__ . '/test.pem.crt',
+                'privateFile' => 'file://' . __DIR__ . '/test.pem.key',
+            ],
+            'rollover' => [
+                'backend' => 'agent',
+                'publicFile' => 'file://' . __DIR__ . '/test2.pem.crt',
+                'agent' => ['key' => 'eb-rollover', 'token' => 'token', 'operations' => ['sign']],
+            ],
+        ]);
+
+        $agentKeyPair = $factory->buildFromIdentifier('rollover');
+        $this->assertTrue($agentKeyPair->usesPrivateKeyAgent());
+        $this->assertNull($agentKeyPair->getPrivateKey());
+        $this->assertEquals(file_get_contents('file://' . __DIR__ . '/test2.pem.crt'), $agentKeyPair->getCertificate()->toPem());
+
+        $this->assertFalse($factory->buildFromIdentifier(null)->usesPrivateKeyAgent());
+        $this->assertCount(2, $factory->buildAll());
+    }
+
     public function test_it_raises_exception_when_requesting_empty_key_pair_identifier()
     {
         $this->expectException(InvalidArgumentException::class);

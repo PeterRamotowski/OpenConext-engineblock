@@ -39,10 +39,33 @@ parameters:
     ## During a key rollover, add the new key as 'rollover'. The default metadata will then
     ## contain both keys, allowing IdPs to accept responses signed with either key.
     ## Once all IdPs have updated their metadata, remove the old key or swap default/rollover.
+    ## Only the "default" key decrypts received assertions.
+    ##
+    ## Each key uses a local private key (backend: local, the default) or the Private Key Agent (backend: agent).
+    ## An agent key has no privateFile: the agent holds the private key of publicFile's certificate. Every agent key
+    ## needs the "sign" operation; only the "default" key may add "decrypt". Keep tokens out of this file, e.g.:
+    ##
+    ##    rollover:
+    ##        backend: agent
+    ##        publicFile: /config/engine/rollover.crt
+    ##        agent:
+    ##            key: engineblock-rollover          # key name in the agent, [a-zA-Z0-9_-]{1,64}
+    ##            token: '%env(trim:file:PKA_ROLLOVER_TOKEN_FILE)%'
+    ##            operations: [sign]
     encryption_keys:
         default:
             publicFile: /config/engine/engineblock.crt
             privateFile: /config/engine/engineblock.pem
+
+    ## The Private Key Agent used by keys with "backend: agent"; ignored when no key uses it.
+    ## Each signature or decryption is one request, without retries or fallback to a local key. Rebuild the
+    ## container cache after changing a key's backend, and run "bin/console surfnet:saml:validate-private-key-agent"
+    ## once the certificates are mounted.
+    private_key_agent:
+        base_url: ~                 # https:// URL of the agent; http:// only for loopback with allow_insecure_http
+        allow_insecure_http: false
+        timeout: 3.0                # idle timeout in seconds, 0.1-30
+        max_duration: 5.0           # total time per request in seconds, 0.1-60
 
     ## List of signature methods explicitly forbidden by EngineBlock.
     forbidden_signature_methods: {  }

@@ -21,11 +21,28 @@ services:
             - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter'
             - '%forbidden_signature_methods%'
 
+    # Replaces the bundle's decrypter (local or agent) with one limited to the "default" key. Local
+    # identities decrypt with the bundle's local decrypter; agent identities only with the default agent key.
     OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter:
         decorates: surfnet_saml.saml2.assertion_decrypter
         arguments:
-            - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter.inner'
+            - '@engineblock.saml_bundle.default_key_assertion_decrypter'
             - '%forbidden_signature_methods%'
+
+    engineblock.saml_bundle.default_key_assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter
+        public: false
+        arguments:
+            - '@surfnet_saml.saml2.local_assertion_decrypter'
+            - !service_closure '@engineblock.saml_bundle.default_key_decryption_key_map'
+            - '@logger'
+
+    engineblock.saml_bundle.default_key_decryption_key_map:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\KeyMap
+        public: false
+        factory: ['OpenConext\EngineBlock\Saml2\Bundle\DefaultKeyDecryptionKeyMap', 'create']
+        arguments:
+            - '%encryption_keys%'
 
     OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier:
         arguments:

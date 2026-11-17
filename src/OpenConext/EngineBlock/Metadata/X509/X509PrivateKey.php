@@ -47,20 +47,4 @@ class X509PrivateKey
     {
         return $this->filePath;
     }
-
-    /**
-     * Sign some data with this private key.
-     *
-     * @param string $data
-     * @return string
-     */
-    public function sign(string $data): string
-    {
-        $privateKeyResource = openssl_pkey_get_private('file://' . $this->filePath);
-
-        $signature = null;
-        openssl_sign($data, $signature, $privateKeyResource);
-
-        return $signature;
-    }
 }

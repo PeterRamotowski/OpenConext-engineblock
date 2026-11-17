@@ -33,6 +33,8 @@ final class GeneratedKeyPair
      */
     private static array $pairs = [];
 
+    private ?string $certificateFile = null;
+
     private function __construct(
         private readonly string $privateKeyPem,
         private readonly string $certificatePem,
@@ -57,6 +59,28 @@ final class GeneratedKeyPair
     public function privateKeyPem(): string
     {
         return $this->privateKeyPem;
+    }
+
+    public function certificatePem(): string
+    {
+        return $this->certificatePem;
+    }
+
+    /**
+     * A temporary PEM file with the certificate, removed at shutdown, for code that reads certificate files.
+     */
+    public function certificateFile(): string
+    {
+        if ($this->certificateFile === null) {
+            $file = tempnam(sys_get_temp_dir(), 'eb-test-certificate-');
+            if ($file === false || file_put_contents($file, $this->certificatePem) === false) {
+                throw new RuntimeException('Could not write a temporary certificate file');
+            }
+            register_shutdown_function(static fn () => @unlink($file));
+            $this->certificateFile = $file;
+        }
+
+        return $this->certificateFile;
     }
 
     /**
