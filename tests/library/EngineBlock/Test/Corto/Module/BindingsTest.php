@@ -20,6 +20,8 @@ use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
+use OpenConext\EngineBlock\Metadata\X509\X509CertificateFactory;
+use OpenConext\EngineBlock\Metadata\X509\X509CertificateLazyProxy;
 use OpenConext\EngineBlock\Request\CorrelationIdServiceInterface;
 use OpenConext\EngineBlock\Request\CurrentCorrelationId;
 use OpenConext\EngineBlock\Service\CookieService;
@@ -898,6 +900,8 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         } catch (EngineBlock_Corto_Exception_ReceivedErrorStatusCode $exception) {
             $this->assertSame('Responder/AuthnFailed', $exception->getFeedbackStatusCode());
             $this->assertSame('Authentication failed', $exception->getFeedbackStatusMessage());
+            $this->assertSame('_request-from-sp', $exception->getFeedbackInfo()['samlRequestId']);
+            $this->assertSame(self::SP_ENTITY_ID, $exception->getFeedbackInfo()['samlServiceProvider']);
         }
 
         Phake::verify($this->proxyServer)->findRequestFromRequestId(self::REQUEST_ID);
@@ -1588,7 +1592,7 @@ XML;
     {
         $serviceProvider = new ServiceProvider(
             self::SP_ENTITY_ID,
-            certificates: array_map(self::certificate(...), $certificates),
+            certificates: array_map(self::metadataCertificate(...), $certificates),
             requestsMustBeSigned: $requestsMustBeSigned
         );
         Phake::when($this->proxyServer)->getRepository()->thenReturn(new InMemoryMetadataRepository([], [$serviceProvider]));
@@ -1597,6 +1601,7 @@ XML;
     private function useMfaHelper(bool $isTransparent): void
     {
         $originalRequest = Phake::mock(EngineBlock_Saml2_AuthnRequestAnnotationDecorator::class);
+        Phake::when($originalRequest)->getId()->thenReturn('_request-from-sp');
         Phake::when($originalRequest)->getIssuerValue()->thenReturn(self::SP_ENTITY_ID);
         Phake::when($this->proxyServer)->findRequestFromRequestId(self::REQUEST_ID)->thenReturn($originalRequest);
 
@@ -1618,8 +1623,16 @@ XML;
 
     private function useIdentityProvider(): void
     {
-        $identityProvider = new IdentityProvider(self::IDP_ENTITY_ID, certificates: [self::certificate('idp')]);
+        $identityProvider = new IdentityProvider(self::IDP_ENTITY_ID, certificates: [self::metadataCertificate('idp')]);
         Phake::when($this->proxyServer)->getRepository()->thenReturn(new InMemoryMetadataRepository([$identityProvider], []));
+    }
+
+    private static function metadataCertificate(string $name): X509CertificateLazyProxy
+    {
+        return new X509CertificateLazyProxy(
+            new X509CertificateFactory(),
+            GeneratedKeyPair::named($name)->certificateData()
+        );
     }
 
     private static function certificate(string $name): EngineBlock_X509_Certificate

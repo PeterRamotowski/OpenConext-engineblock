@@ -148,12 +148,11 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             return;
         }
 
-        $nextProcessStep = $this->_processingStateHelper->getStepByRequestId(
-            $receivedRequest->getId(),
-            ProcessingStateHelperInterface::STEP_CONSENT
+        $this->_server->sendConsentAuthenticationRequest(
+            $originalReceivedResponse,
+            $receivedRequest,
+            $this->getAuthenticationState()
         );
-
-        $this->_server->sendConsentAuthenticationRequest($originalReceivedResponse, $receivedRequest, $nextProcessStep->getRole(), $this->getAuthenticationState());
     }
 
     /**

@@ -153,14 +153,7 @@ class Feedback
     #[AsTwigFunction(name: 'hasBackToSpLink')]
     public function hasBackToSpLink(): bool
     {
-        $info = $this->retrieveFeedbackInfo();
-        if (!$info->has('serviceProvider') ||
-            !$info->has('identityProvider') ||
-            !$info->has('requestId')) {
-            return false;
-        }
-        $response = $this->getSamlFailedResponse();
-        return $response !== '';
+        return $this->getSamlFailedResponse() !== '';
     }
 
     #[AsTwigFunction(name: 'getSpName')]
@@ -172,8 +165,8 @@ class Feedback
     #[AsTwigFunction(name: 'getAcu')]
     public function getAcu(): string
     {
-        $info = $this->retrieveFeedbackInfo();
-        return $this->samlResponseHelper->getAcu($info->get('serviceProvider'));
+        $info = $this->feedbackStateHelper->getFeedbackInfo();
+        return $this->samlResponseHelper->getAcu($info['samlServiceProvider']);
     }
 
     #[AsTwigFunction(name: 'getSamlFailedResponse')]
@@ -183,12 +176,16 @@ class Feedback
         // If AuthnFailedResponse is not set, we are unable to render a createAuthnFailedResponse
         $sspResponse = $feedbackInfo['AuthnFailedResponse'] ?? null;
         $value = '';
-        if (!is_null($sspResponse)) {
+        if ($sspResponse !== null && isset(
+            $feedbackInfo['samlServiceProvider'],
+            $feedbackInfo['identityProvider'],
+            $feedbackInfo['samlRequestId']
+        )) {
             // Compose the Saml error response that can be used to travel back to the SP
             $value = $this->samlResponseHelper->createAuthnFailedResponse(
-                $feedbackInfo['serviceProvider'],
+                $feedbackInfo['samlServiceProvider'],
                 $feedbackInfo['identityProvider'],
-                $feedbackInfo['requestId'],
+                $feedbackInfo['samlRequestId'],
                 $feedbackInfo['statusMessage'] ?? '',
                 $sspResponse
             );
@@ -216,8 +213,7 @@ class Feedback
                 if ($value instanceof Issuer) {
                     $value = $value->getContent()->getValue();
                 }
-                if ($key === 'AuthnFailedResponse') {
-                    // Don't show the AuthnFailedResponse base64 encoded response message in the feedback info table
+                if (in_array($key, ['AuthnFailedResponse', 'samlRequestId', 'samlServiceProvider'], true)) {
                     continue;
                 }
                 $feedbackInfoMap->add(new FeedbackInformation($key, $value));

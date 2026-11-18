@@ -19,6 +19,8 @@
 use OpenConext\EngineBlock\Metadata\Entity\AbstractRole;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
+use OpenConext\EngineBlock\Metadata\X509\X509Certificate as MetadataCertificate;
+use OpenConext\EngineBlock\Metadata\X509\X509CertificateLazyProxy;
 use OpenConext\EngineBlock\Validator\AllowedSchemeValidator;
 use OpenConext\EngineBlockBundle\Exception\ResponseProcessingFailedException;
 use Dom\Element;
@@ -31,8 +33,11 @@ use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
 use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
 use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use OpenConext\EngineBlock\Service\FeedbackStateHelperInterface;
 use SimpleSAML\SAML2\Configuration\PrivateKey as Saml2PrivateKey;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
+use SimpleSAML\SAML2\Type\EntityIDValue;
 use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
 use SimpleSAML\SAML2\XML\saml\Assertion as V7Assertion;
 use SimpleSAML\SAML2\XML\samlp\AbstractMessage as V7Message;
@@ -159,7 +164,8 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
      */
     public function receiveRequest(?string $idpHash = null)
     {
-        $httpRequest = EngineBlock_ApplicationSingleton::getInstance()->getHttpRequest();
+        $application = EngineBlock_ApplicationSingleton::getInstance();
+        $httpRequest = $application->getHttpRequest();
         $method = strtoupper((string) $httpRequest->getMethod());
         $redirectQuery = null;
 
@@ -193,6 +199,18 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             );
         }
 
+        // An unverified issuer is only used for feedback until the request passes validation.
+        $requestAttributes = $application->getDiContainer()->getSymfonyRequest()?->attributes;
+        $issuerElements = $this->query($root, './saml:Issuer');
+        if ($requestAttributes !== null && count($issuerElements) === 1) {
+            try {
+                $claimedIssuer = EntityIDValue::fromString($issuerElements[0]->textContent)->getValue();
+                $requestAttributes->set(FeedbackStateHelperInterface::CLAIMED_SERVICE_PROVIDER_ATTRIBUTE, $claimedIssuer);
+            } catch (ProtocolViolationException) {
+                // The typed request parser reports an invalid issuer.
+            }
+        }
+
         $isSigned = $redirectQuery !== null ? $redirectQuery->isSigned() : $this->query($root, './ds:Signature') !== [];
         try {
             if ($redirectQuery !== null) {
@@ -204,6 +222,8 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             }
             $sspRequest = $this->authnRequestElement($receivedRequest);
         } catch (Exception $exception) {
+            // A relative ACS URL cannot be represented by the typed request. Keep the specific ACS feedback.
+            $this->assertValidAcsLocationScheme($root->getAttribute('AssertionConsumerServiceURL'));
             throw $this->unableToReceiveRequest($exception);
         }
 
@@ -283,10 +303,11 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $this->_checkIssueInstant(Saml2Value::timestamp($sspRequest->getIssueInstant()), 'SP', $issuer);
         $this->assertRequestDestination($receivedRequest->getDestination(), $isSigned, $idpHash);
 
-        EngineBlock_ApplicationSingleton::getInstance()->getDiContainerRuntime()->feedbackStateHelper->startNewFlow(
+        $application->getDiContainerRuntime()->feedbackStateHelper->startNewFlow(
             $receivedRequest->getRequestId(),
             $issuer
         );
+        $requestAttributes?->remove(FeedbackStateHelperInterface::CLAIMED_SERVICE_PROVIDER_ATTRIBUTE);
 
         $ebRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($sspRequest, $relayState);
         if ($isSigned) {
@@ -433,7 +454,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
      */
     private function serviceProviderCertificates(ServiceProvider $serviceProvider): array
     {
-        /** @var EngineBlock_X509_Certificate[] $certificates */
         $certificates = $serviceProvider->certificates;
         if (empty($certificates)) {
             throw new EngineBlock_Corto_Module_Bindings_VerificationException(
@@ -442,9 +462,8 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         }
 
         return array_values(array_map(
-            static fn(EngineBlock_X509_Certificate $certificate) => new XmlSecurityCertificate(
-                PEM::fromString($certificate->toPem())
-            ),
+            static fn(EngineBlock_X509_Certificate|MetadataCertificate|X509CertificateLazyProxy $certificate) =>
+                new XmlSecurityCertificate(PEM::fromString($certificate->toPem())),
             $certificates
         ));
     }
@@ -582,6 +601,7 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         try {
             $sspResponse = V7Response::fromXML($root);
         } catch (Exception $exception) {
+            $this->assertValidAuthnContextUris($root);
             throw new EngineBlock_Corto_Module_Bindings_VerificationException(
                 $exception->getMessage(),
                 EngineBlock_Exception::CODE_NOTICE,
@@ -780,6 +800,9 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $exception->setFeedbackStatusCode($statusCodeDescription);
         $exception->setFeedbackStatusMessage($statusMessage);
         $exception->setResponse($response);
+        if ($originalRequest !== null) {
+            $exception->setOriginalRequest($originalRequest);
+        }
 
         throw $exception;
     }
@@ -1271,13 +1294,13 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         return (isset($this->_bindings[$binding]));
     }
 
-    public function sendInternal(EngineBlock_Saml2_MessageAnnotationDecorator $message)
+    public function sendInternal(EngineBlock_Saml2_MessageAnnotationDecorator $message, ?string $internalDestination = null)
     {
         // Store the message
         $name = $message->getMessageType();
         $this->_internalBindingMessages[$name] = $message;
 
-        $destinationLocation = $message->getDestination();
+        $destinationLocation = $internalDestination ?? $message->getDestination();
         $parameters = $this->_server->getParametersFromUrl($destinationLocation);
         if (isset($parameters['RemoteIdPMd5'])) {
             $this->_server->setRemoteIdpMd5($parameters['RemoteIdPMd5']);
@@ -1343,6 +1366,22 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         return new BundleServiceProvider($configuration);
     }
 
+    private function assertValidAuthnContextUris(Element $root): void
+    {
+        $path = './saml:Assertion/saml:AuthnStatement/saml:AuthnContext/saml:AuthnContextClassRef';
+        foreach ($this->query($root, $path) as $classRef) {
+            try {
+                SAMLAnyURIValue::fromString($classRef->textContent);
+            } catch (ProtocolViolationException $exception) {
+                throw new EngineBlock_Corto_Exception_AuthnContextClassRefBlacklisted(
+                    'The received AuthnContextClassRef is not a valid SAML URI',
+                    EngineBlock_Exception::CODE_NOTICE,
+                    $exception
+                );
+            }
+        }
+    }
+
     private function getDefaultDecryptionKeyPair(): EngineBlock_X509_KeyPair
     {
         return $this->_server->getSigningCertificates(true);
@@ -1350,13 +1389,12 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
     private function bundleIdentityProvider(IdentityProvider $identityProvider): BundleIdentityProvider
     {
-        /** @var EngineBlock_X509_Certificate[] $certificates */
         $certificates = $identityProvider->certificates;
 
         return new BundleIdentityProvider([
             'entityId' => $identityProvider->entityId,
             'keys' => array_values(array_map(
-                static fn(EngineBlock_X509_Certificate $certificate) => [
+                static fn(EngineBlock_X509_Certificate|MetadataCertificate|X509CertificateLazyProxy $certificate) => [
                     'type' => 'X509Certificate',
                     'signing' => true,
                     'X509Certificate' => $certificate->toCertData(),

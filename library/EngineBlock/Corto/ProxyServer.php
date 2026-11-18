@@ -38,6 +38,7 @@ use Psr\Log\LoggerInterface;
 use OpenConext\EngineBlock\Saml2\Message\AttributeMapper;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\Type\EntityIDValue;
 use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
 use SimpleSAML\SAML2\Type\SAMLStringValue;
@@ -436,21 +437,17 @@ class EngineBlock_Corto_ProxyServer
         $serviceProvider = new Entity(new EntityId($spEntityId), EntityType::SP());
 
         try {
-            $originalSpEnitytId = $this->findOriginalServiceProvider($spRequest, $this->_logger)->entityId;
+            $originalSpEntityId = $this->findOriginalServiceProvider($spRequest, $this->_logger)->entityId;
         } catch (EntityNotFoundException $e) {
             // On debug requests, the entity ID can not be found in the database as this is the EngineBlock internal
             // entity which does not reside in the database.
-            $originalSpEnitytId = $spEntityId;
+            $originalSpEntityId = $spEntityId;
         }
 
         // Add authncontextclassref if configured
-        $service = $identityProvider->getCoins()->mfaEntities()->findByEntityId($originalSpEnitytId);
+        $service = $identityProvider->getCoins()->mfaEntities()->findByEntityId($originalSpEntityId);
         if ($service instanceof MfaEntity) {
-            $ebRequest->setRequestedAuthnContext([
-                'AuthnContextClassRef' => [
-                    $service->level(),
-                ],
-            ]);
+            $this->setConfiguredAuthnContext($ebRequest, $service->level(), $identityProvider, $originalSpEntityId);
         } elseif ($service instanceof TransparentMfaEntity) {
             // When transparent_authn_context is configured, forward the SP AuthnClassRefContext to the IdP
             // See: https://www.pivotaltracker.com/story/show/173305494
@@ -459,11 +456,7 @@ class EngineBlock_Corto_ProxyServer
             // The request didn't have a RequestedAuthnContext set, but we do have a default to fall back to
             $defaultRAC = $identityProvider->getCoins()->defaultRAC();
             if ($defaultRAC !== null) {
-                $ebRequest->setRequestedAuthnContext([
-                    'AuthnContextClassRef' => [
-                        $defaultRAC,
-                    ],
-                ]);
+                $this->setConfiguredAuthnContext($ebRequest, $defaultRAC, $identityProvider, $originalSpEntityId);
             }
         }
 
@@ -484,6 +477,29 @@ class EngineBlock_Corto_ProxyServer
         $correlationIdService->resolve($spRequest->getId());
 
         $this->getBindingsModule()->send($ebRequest, $identityProvider);
+    }
+
+    private function setConfiguredAuthnContext(
+        EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
+        string $classRef,
+        IdentityProvider $identityProvider,
+        string $spEntityId
+    ): void {
+        try {
+            $classRef = SAMLAnyURIValue::fromString($classRef)->getValue();
+        } catch (ProtocolViolationException $exception) {
+            throw new EngineBlock_Corto_Exception_InvalidMfaAuthnContextClassRef(
+                sprintf(
+                    'Invalid configured AuthnContextClassRef for IdP "%s" and SP "%s": expected an absolute URI',
+                    $identityProvider->entityId,
+                    $spEntityId
+                ),
+                EngineBlock_Exception::CODE_WARNING,
+                $exception
+            );
+        }
+
+        $request->setRequestedAuthnContext(['AuthnContextClassRef' => [$classRef]]);
     }
 
     public function sendStepupAuthenticationRequest(
@@ -686,7 +702,6 @@ class EngineBlock_Corto_ProxyServer
         $this->sendConsentAuthenticationRequest(
             $receivedResponse,
             $receivedRequest,
-            $this->getEngineSpRole(),
             $this->_diContainer->getAuthenticationStateHelper()->getAuthenticationState(),
         );
     }
@@ -721,16 +736,13 @@ class EngineBlock_Corto_ProxyServer
     function sendConsentAuthenticationRequest(
         EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse,
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $receivedRequest,
-        AbstractRole $serviceProvider,
         AuthenticationState $authenticationState
     ) {
         $this->setProcessingMode();
         $newResponse = $this->_server->createEnhancedResponse($receivedRequest, $receivedResponse);
 
-        // Change the destiny of the received response
         $inResponseTo = $receivedResponse->getInResponseTo();
         $newResponse->setInResponseTo($inResponseTo);
-        $newResponse->setDestination('/authentication/idp/provide-consent');
         $newResponse->setDeliverByBinding('INTERNAL');
         $newResponse->setReturn($this->_server->getUrl('processedAssertionConsumerService'));
 
@@ -738,7 +750,10 @@ class EngineBlock_Corto_ProxyServer
         $identityProvider = new Entity(new EntityId($idp->entityId), EntityType::IdP());
         $authenticationState->authenticatedAt($inResponseTo, $identityProvider);
 
-        $this->_server->getBindingsModule()->send($newResponse, $serviceProvider);
+        $this->_server->getBindingsModule()->sendInternal(
+            $newResponse,
+            $this->_serviceToControllerMapping['provideConsentService']
+        );
     }
 
 //////// RESPONSE HANDLING ////////

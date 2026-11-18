@@ -26,6 +26,8 @@ namespace OpenConext\EngineBlock\Service;
  */
 interface FeedbackStateHelperInterface
 {
+    public const string CLAIMED_SERVICE_PROVIDER_ATTRIBUTE = 'engineblock.claimed_service_provider';
+
     public function storeFeedbackInfo(array $feedback): void;
 
     public function getFeedbackInfo(): array;

@@ -13,6 +13,13 @@ who are in the middle of a login during the upgrade must restart it.
   [docs/session_cutover.md](docs/session_cutover.md).
 - Present AuthnRequest signatures are always verified, even when signing is optional. Outgoing authentication
   requests expire after five minutes and accept one response, from the intended IdP at the intended ACS.
+- Every `RequesterID` in an AuthnRequest must be an absolute URI. A malformed value now rejects the request.
+  An unknown but well-formed `RequesterID` is still ignored for WAYF scoping.
+- Check configured MFA methods and default requested authentication contexts in Manage. These values must be
+  absolute URIs. The `transparent_authn_context` setting still tells EngineBlock to forward the SP's context.
+- A successful response to an AuthnRequest must include a bearer confirmation with `Recipient` set to the
+  expected ACS and `InResponseTo` matching the request ID. IdPs that omit either value must update their response.
+  Reloading a consent page that resubmits the IdP response requires restarting the login.
 - `encryption_keys` entries are validated when the container is built: every key needs `publicFile`, local keys need
   `privateFile`, and unknown fields are rejected. Configure the SAML bundle through `encryption_keys` and
   `private_key_agent` only; `surfnet_saml.hosted` and `surfnet_saml.private_key_agent` must not be set.
