@@ -18,6 +18,7 @@
 
 namespace OpenConext\EngineBlock\Saml2\Message;
 
+use Closure;
 use InvalidArgumentException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\saml\AttributeStatement;
@@ -198,7 +199,7 @@ final class MessageRebuilder
         return $extensions instanceof Extensions ? $extensions : null;
     }
 
-    private static function valueResolver(array $changes): \Closure
+    private static function valueResolver(array $changes): Closure
     {
         return static fn (string $field, mixed $original): mixed =>
             array_key_exists($field, $changes) ? $changes[$field] : $original;

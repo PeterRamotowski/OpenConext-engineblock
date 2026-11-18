@@ -20,9 +20,9 @@ namespace OpenConext\EngineBlockBundle\Authentication\Service;
 
 use EngineBlock_Saml2_ResponseAnnotationDecorator;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockBundle\Exception\RuntimeException;
 use SimpleSAML\SAML2\Constants;
-use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
 use SimpleSAML\SAML2\XML\samlp\Response as SAMLResponse;
 use SimpleSAML\XMLSchema\Type\IDValue;

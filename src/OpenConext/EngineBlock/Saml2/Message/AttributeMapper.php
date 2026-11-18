@@ -26,10 +26,10 @@ use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\saml\Attribute;
 use SimpleSAML\SAML2\XML\saml\AttributeStatement;
 use SimpleSAML\SAML2\XML\saml\AttributeValue;
-use SimpleSAML\SAML2\XML\saml\NameID;
 use SimpleSAML\XML\AbstractElement;
 use SimpleSAML\XMLSchema\Type\Interface\AbstractAnySimpleType;
 use SimpleSAML\XMLSchema\Type\Interface\ValueTypeInterface;
+use Stringable;
 
 /**
  * Maps between saml2 v7 attribute statements and EngineBlock's flat attribute arrays.
@@ -38,6 +38,8 @@ use SimpleSAML\XMLSchema\Type\Interface\ValueTypeInterface;
  * `array<string, list<string|NameID|AbstractElement>>`. Scalar values are their trimmed lexical value,
  * the EPTI keeps its NameID and other complex content keeps its element. On write, strings become
  * xs:string and integers xs:integer unless an explicit value type is given.
+ *
+ * @SuppressWarnings(PHPMD.CouplingBetweenObjects) Maps the SAML and XML Schema value types at the protocol boundary.
  */
 final class AttributeMapper
 {
@@ -133,22 +135,23 @@ final class AttributeMapper
         if ($value === null) {
             return new AttributeValue(null);
         }
-        if ($value instanceof NameID || $value instanceof AbstractElement || $value instanceof ValueTypeInterface) {
+        if ($value instanceof AbstractElement || $value instanceof ValueTypeInterface) {
             return new AttributeValue($value);
         }
-        if (!is_scalar($value) && !$value instanceof \Stringable) {
+        if (!is_scalar($value) && !$value instanceof Stringable) {
             throw new InvalidArgumentException(sprintf('Unsupported attribute value of type "%s"', get_debug_type($value)));
         }
 
+        return new AttributeValue(self::typedValue($value, $type));
+    }
+
+    private static function typedValue(mixed $value, ?string $type): ValueTypeInterface
+    {
         if ($type === null || $type === '') {
             $type = is_int($value) ? 'xs:integer' : 'xs:string';
         }
+        $value = (string) $value;
 
-        return new AttributeValue(self::typedValue((string) $value, $type));
-    }
-
-    private static function typedValue(string $value, string $type): ValueTypeInterface
-    {
         $localName = str_contains($type, ':') ? substr($type, strpos($type, ':') + 1) : $type;
         if ($localName === 'string') {
             return TypedStringValue::fromString($value);

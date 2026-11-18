@@ -26,6 +26,8 @@ use Symfony\Component\HttpKernel\Event\ResponseEvent;
 /**
  * A session is only used by the release (storage namespace) that wrote it.
  *
+ * @SuppressWarnings(PHPMD.Superglobals) Native Corto sessions keep the marker at the top level.
+ *
  * Every session written by this release carries a namespace marker. A session presented without the expected
  * marker (a reused cookie name, a rollback, or a release with another serialization format) is invalidated before
  * EngineBlock uses any authentication state from it.
