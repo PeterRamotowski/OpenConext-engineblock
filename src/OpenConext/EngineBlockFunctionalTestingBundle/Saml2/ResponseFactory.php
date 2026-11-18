@@ -22,15 +22,18 @@ use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
 use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\EntityIDValue;
+use SimpleSAML\SAML2\Type\SAMLDateTimeValue;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\saml\Conditions;
 use SimpleSAML\SAML2\XML\saml\Subject;
 use SimpleSAML\SAML2\XML\saml\SubjectConfirmation;
 use SimpleSAML\SAML2\XML\saml\SubjectConfirmationData;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SamlAuthnRequest;
-use SimpleSAML\SAML2\Type\SAMLDateTimeValue;
 use SimpleSAML\XMLSchema\Type\NCNameValue;
 
+/** @SuppressWarnings(PHPMD.CouplingBetweenObjects) Builds the protocol objects for mock IdP responses. */
 class ResponseFactory
 {
     /**
@@ -65,7 +68,7 @@ class ResponseFactory
 
         $this->encryptAssertions($mockIdp, $response);
 
-        if ($mockIdp->shouldNotSendAssertions()) {
+        if ($mockIdp->shouldNotSendAssertions() || $response->getStatus()['Code'] !== Constants::STATUS_SUCCESS) {
             $response->setAssertions([]);
         }
 
@@ -85,6 +88,8 @@ class ResponseFactory
     private function setResponseReferencesToRequest(SamlAuthnRequest $request, Response $response): void
     {
         $requestId = $request->getId()->getValue();
+        $acs = $request->getAssertionConsumerServiceURL()?->getValue() ?? $response->getDestination();
+        $recipient = $acs === null ? null : EntityIDValue::fromString($acs);
         $response->setInResponseTo($requestId);
 
         $assertions = $response->getAssertions();
@@ -98,7 +103,7 @@ class ResponseFactory
         }
 
         $subjectConfirmations = array_map(
-            static function (SubjectConfirmation $subjectConfirmation) use ($requestId): SubjectConfirmation {
+            static function (SubjectConfirmation $subjectConfirmation) use ($requestId, $recipient): SubjectConfirmation {
                 $data = $subjectConfirmation->getSubjectConfirmationData();
                 return new SubjectConfirmation(
                     $subjectConfirmation->getMethod(),
@@ -106,7 +111,7 @@ class ResponseFactory
                     new SubjectConfirmationData(
                         $data?->getNotBefore(),
                         $data?->getNotOnOrAfter(),
-                        $data?->getRecipient(),
+                        $data?->getRecipient() ?? $recipient,
                         NCNameValue::fromString($requestId),
                         $data?->getAddress(),
                         $data?->getElements() ?? [],

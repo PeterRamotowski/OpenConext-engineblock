@@ -92,8 +92,8 @@ Feature:
       And I should see "IdP:"
 
   Scenario: I log in at my Identity Provider, but it has changed (private/public) keys without notifying OpenConext
-    Given the IdP uses the private key at "src/OpenConext/EngineBlockFunctionalTestingBundle/Resources/keys/rolled-over.key"
-      And the IdP uses the certificate at "src/OpenConext/EngineBlockFunctionalTestingBundle//Resources/keys/rolled-over.crt"
+    Given the IdP uses the private key at "src/OpenConext/EngineBlockFunctionalTestingBundle/Resources/keys/stepup-gateway-mock.key"
+      And the IdP uses the certificate at "src/OpenConext/EngineBlockFunctionalTestingBundle/Resources/keys/stepup-gateway-mock.crt"
      When I log in at "Dummy SP"
       And I pass through EngineBlock
       And I pass through the IdP
@@ -379,7 +379,6 @@ Feature:
     When I log in at "Dummy SP"
       And I pass through EngineBlock
       And I pass through the IdP
-      And I give my consent
     Then I should see "Error - AuthnContextClassRef value is not allowed"
 
   Scenario: The configured IdP for MFA doesn't have a required auth method in response.

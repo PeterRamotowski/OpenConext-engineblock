@@ -18,6 +18,7 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Saml2;
 
+use Dom\Element;
 use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use SimpleSAML\SAML2\Exception\ProtocolViolationException;
@@ -235,7 +236,7 @@ class AuthnRequest
         return $element->ownerDocument->saveXml();
     }
 
-    private function toDocumentElement(): \Dom\Element
+    private function toDocumentElement(): Element
     {
         $element = Saml2Value::documentElement($this->request->toXml());
         foreach ($this->attributeOverrides as $name => $value) {

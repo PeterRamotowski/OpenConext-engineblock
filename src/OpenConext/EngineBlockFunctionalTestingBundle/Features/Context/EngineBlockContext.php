@@ -680,18 +680,11 @@ class EngineBlockContext extends AbstractSubContext
      */
     public function theReceivedAuthnRequestShouldNotMatchXpath($xpath)
     {
-        $session = $this->getMinkContext()->getSession();
-        try {
-            $this->theAuthnRequestToSubmitShouldMatchXpath($xpath);
-            throw new RuntimeException('The xpath was found in the AuthnRequest, it should not');
-        } catch (ExpectationException $e) {
-            if (false === preg_match('/The xpath "(w+)" did not result in at least one match./', $e->getMessage())) {
-                throw new ExpectationException(
-                    'Unexepected match on the xpath that should NOT match the AuthnRequest xml',
-                    $session,
-                    $e
-                );
-            }
+        if ($this->countAuthnRequestXpathMatches($xpath) > 0) {
+            throw new ExpectationException(
+                sprintf('The xpath "%s" unexpectedly matched the AuthnRequest', $xpath),
+                $this->getMinkContext()->getSession()
+            );
         }
     }
 
@@ -708,6 +701,16 @@ class EngineBlockContext extends AbstractSubContext
      */
     public function theAuthnRequestToSubmitShouldMatchXpath($xpath)
     {
+        if ($this->countAuthnRequestXpathMatches($xpath) === 0) {
+            throw new ExpectationException(
+                sprintf('The xpath "%s" did not result in at least one match.', $xpath),
+                $this->getMinkContext()->getSession()
+            );
+        }
+    }
+
+    private function countAuthnRequestXpathMatches(string $xpath): int
+    {
         $session = $this->getMinkContext()->getSession();
         $mink    = $session->getPage();
         $authnRequestElement = $mink->find('css', 'input[name="authnRequestXml"]');
@@ -721,16 +724,21 @@ class EngineBlockContext extends AbstractSubContext
          * @see MinkContext::theResponseShouldMatchXpath()
          */
         $authnRequest = new DOMDocument();
-        $authnRequest->loadXML($authnRequestXml);
+        if (!$authnRequest->loadXML($authnRequestXml)) {
+            throw new ExpectationException('The AuthnRequest is not valid XML', $session);
+        }
 
         $xpathObject = new DOMXPath($authnRequest);
         $xpathObject->registerNamespace('gssp', 'urn:mace:surf.nl:stepup:gssp-extensions');
+        $xpathObject->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObject->registerNamespace('samlp', Constants::NS_SAMLP);
         $nodeList = $xpathObject->query($xpath);
 
-        if (!$nodeList || $nodeList->length === 0) {
-            $message = sprintf('The xpath "%s" did not result in at least one match.', $xpath);
-            throw new ExpectationException($message, $session);
+        if ($nodeList === false) {
+            throw new ExpectationException(sprintf('Invalid xpath "%s"', $xpath), $session);
         }
+
+        return $nodeList->length;
     }
 
     /**

@@ -59,6 +59,8 @@ use SimpleSAML\XMLSecurity\XML\xenc\EncryptionMethod;
 /**
  * Signing and encryption of (raw) SAML DOM elements for the mock entities.
  *
+ * @SuppressWarnings(PHPMD.CouplingBetweenObjects) Builds XML signature and encryption elements for fixtures.
+ *
  * The mocks sign and encrypt the serialized DOM instead of the saml2 v7 objects, so the XML can contain values
  * saml2 v7 refuses to model (e.g. an invalid ACS location or AuthnContextClassRef) that EngineBlock must reject.
  */
@@ -117,6 +119,9 @@ final class XmlSecurity
 
     /**
      * Add an enveloped XML signature (exclusive c14n) to the element, placed directly after its saml:Issuer.
+     *
+     * @SuppressWarnings(PHPMD.UndefinedVariable) The digest table is a public static dependency property.
+     * @SuppressWarnings(PHPMD.CamelCaseVariableName) The dependency names the digest table DIGEST_ALGORITHMS.
      */
     public static function signEnveloped(
         Element $element,

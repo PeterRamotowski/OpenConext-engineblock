@@ -81,6 +81,11 @@ class EngineBlock_Application_FunctionalTestDiContainer extends EngineBlock_Appl
     #[Override]
     public function getEncryptionKeysConfiguration()
     {
+        $configuredKeys = parent::getEncryptionKeysConfiguration();
+        if (in_array('agent', array_column($configuredKeys, 'backend'), true)) {
+            return $configuredKeys;
+        }
+
         $basePath = $this->container->getParameter('kernel.project_dir');
         return [
             'default' => [

@@ -69,6 +69,7 @@ final class HttpBinding
      * Receive a SAML message from an HTTP-POST or HTTP-Redirect binding request.
      *
      * @return array{parameter: string, xml: string, relayState: ?string}
+     * @SuppressWarnings(PHPMD.ErrorControlOperator) Invalid deflate data is handled by checking the return value.
      */
     public static function receive(Request $request): array
     {

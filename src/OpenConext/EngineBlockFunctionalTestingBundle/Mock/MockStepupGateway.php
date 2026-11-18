@@ -19,6 +19,7 @@ namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
 use DateInterval;
 use DateTime;
+use EngineBlock_ApplicationSingleton;
 use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
 use EngineBlock_Saml2_ResponseAnnotationDecorator;
 use LogicException;
@@ -82,7 +83,8 @@ class MockStepupGateway
      */
     public function __construct(
         FunctionalTestingStepupGatewayMockConfiguration $gatewayConfiguration,
-        $sfoRolloverEntityId
+        $sfoRolloverEntityId,
+        private readonly EngineBlock_ApplicationSingleton $application
     ) {
         $this->gatewayConfiguration = $gatewayConfiguration;
         $this->currentTime = new DateTime();
@@ -256,10 +258,16 @@ class MockStepupGateway
 
         $signature = base64_decode($request->query->getString(self::PARAMETER_SIGNATURE));
 
+        // EngineBlock signs Stepup requests with its default key. The mock's key signs only its responses.
+        $keys = $this->application->getDiContainer()->getEncryptionKeysConfiguration();
+        $certificate = file_get_contents($keys['default']['publicFile']);
+        if ($certificate === false) {
+            throw new RuntimeException('Unable to read the EngineBlock signing certificate');
+        }
         if (!XmlSecurity::verifyRedirectSignature(
             $query,
             $signature,
-            $this->gatewayConfiguration->getIdentityProviderPublicKeyCertData(),
+            $certificate,
             Constants::SIG_RSA_SHA256
         )) {
             throw new BadRequestHttpException(

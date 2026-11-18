@@ -67,7 +67,7 @@ Feature:
     Then I should see "IDP4"
 
   Scenario: Unknown RequesterID does not influence WAYF
-    Given SP "SP" is authenticating and uses RequesterID "unknown-SP"
+    Given SP "SP" is authenticating and uses RequesterID "urn:example:unknown-sp"
     When I log in at "SP"
     Then I should see "IDP1"
     Then I should see "IDP2"

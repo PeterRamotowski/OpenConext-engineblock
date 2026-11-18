@@ -18,8 +18,8 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Controllers;
 
-use OpenConext\EngineBlockFunctionalTestingBundle\Helper\TestEntitySeeder;
 use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use OpenConext\EngineBlockFunctionalTestingBundle\Helper\TestEntitySeeder;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\XML\saml\NameID;
 use Symfony\Component\HttpFoundation\Request;

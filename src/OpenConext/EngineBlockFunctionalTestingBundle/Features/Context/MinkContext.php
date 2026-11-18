@@ -86,6 +86,8 @@ class MinkContext extends BaseMinkContext
         $document = new DOMDocument();
         $document->loadXML($this->getSession()->getPage()->getContent());
         $xpathObj = new DOMXPath($document);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
         $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
         $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
         $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
@@ -145,6 +147,8 @@ class MinkContext extends BaseMinkContext
         $document->loadXML($this->getSession()->getPage()->getContent());
 
         $xpathObj = new DOMXPath($document);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
         $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
         $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
         $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
@@ -169,6 +173,8 @@ class MinkContext extends BaseMinkContext
         $document = new DOMDocument();
         $document->loadXML($this->getSession()->getPage()->getContent());
         $xpathObj = new DOMXPath($document);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
         $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
         $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
         $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);

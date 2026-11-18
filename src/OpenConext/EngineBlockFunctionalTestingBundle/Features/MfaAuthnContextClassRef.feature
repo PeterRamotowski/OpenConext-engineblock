@@ -82,7 +82,7 @@ Feature:
     Then the url should match "/functional-testing/SSO-SP/acs"
 
   Scenario: The SP provided authn method should NOT be set as AuthnContextClassRef if SP configured is not with transparent_authn_context
-    Given the IdP "SSO-IdP" is configured for MFA authn method "not_configured_transparent_authn_context" for SP "SSO-SP"
+    Given the IdP "SSO-IdP" is configured for MFA authn method "urn:example:authn-context:configured" for SP "SSO-SP"
     And the SP "SSO-SP" sends AuthnContextClassRef with value "http://my-very-own-context.example.com/level9"
     When I log in at "SSO-SP"
     And I pass through EngineBlock
@@ -98,7 +98,6 @@ Feature:
     Then the url should match "functional-testing/SSO-IdP/sso"
     And the AuthnRequest to submit should match xpath '/samlp:AuthnRequest/samlp:RequestedAuthnContext/saml:AuthnContextClassRef[text()="http://sp-specific-loa.org/super-secure-second-factor-authn"]'
     And I pass through the IdP
-    And I give my consent
     And I pass through EngineBlock
    Then the url should match "/functional-testing/SSO-SP/acs"
     And the response should contain "urn:oasis:names:tc:SAML:2.0:status:Responder"
