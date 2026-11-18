@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "515279154c5251ab3dfe204b399af262",
+    "content-hash": "86ebca23a90f2727a89d08c5062f5904",
     "packages": [
         {
             "name": "beberlei/assert",
@@ -3308,12 +3308,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/PeterRamotowski/Stepup-saml-bundle.git",
-                "reference": "60f2bfe2e482f30215bded6b3953c2af44e94b06"
+                "reference": "8b5aff2debb883fb940f53eea049a3ed7fbea69a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/PeterRamotowski/Stepup-saml-bundle/zipball/60f2bfe2e482f30215bded6b3953c2af44e94b06",
-                "reference": "60f2bfe2e482f30215bded6b3953c2af44e94b06",
+                "url": "https://api.github.com/repos/PeterRamotowski/Stepup-saml-bundle/zipball/8b5aff2debb883fb940f53eea049a3ed7fbea69a",
+                "reference": "8b5aff2debb883fb940f53eea049a3ed7fbea69a",
                 "shasum": ""
             },
             "require": {
@@ -3429,7 +3429,7 @@
             "support": {
                 "source": "https://github.com/PeterRamotowski/Stepup-saml-bundle/tree/feature/saml2-v7-pka"
             },
-            "time": "2026-11-12T13:22:28+00:00"
+            "time": "2026-11-18T10:09:45+00:00"
         },
         {
             "name": "symfony/asset",

@@ -48,7 +48,7 @@
         "simplesamlphp/saml2": "7.0.0-rc4",
         "simplesamlphp/xml-common": "^3.0",
         "simplesamlphp/xml-security": "^3.1",
-        "surfnet/stepup-saml-bundle": "dev-feature/saml2-v7-pka#60f2bfe2e482f30215bded6b3953c2af44e94b06",
+        "surfnet/stepup-saml-bundle": "dev-feature/saml2-v7-pka#8b5aff2debb883fb940f53eea049a3ed7fbea69a",
         "symfony/asset": "^7.4",
         "symfony/console": "^7.4",
         "symfony/dotenv": "^7.4",

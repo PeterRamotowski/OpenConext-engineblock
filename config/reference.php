@@ -1457,7 +1457,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             assertion_consumer_route?: scalar|Param|null, // The name of the route to generate the assertion consumer URL // Default: null
  *             public_key?: scalar|Param|null, // The absolute path to the public key used to sign AuthnRequests // Default: null
  *             private_key?: scalar|Param|null, // The absolute path to the private key used to sign AuthnRequests // Default: null
- *             use_private_key_agent?: bool|Param, // Use the Private Key Agent key of public_key instead of a local private_key // Default: false
+ *             use_private_key_agent?: bool|Param, // Sign through the Private Key Agent using the key matching public_key. When false, sign locally using private_key. // Default: false
  *         },
  *         identity_provider?: bool|array{
  *             enabled?: bool|Param, // Default: false
@@ -1466,13 +1466,13 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             certificate?: scalar|Param|null, // The contents of the certificate used to sign the AuthnResponse with, if different from the public key configured below // Default: null
  *             public_key?: scalar|Param|null, // The absolute path to the public key used to sign Responses to AuthRequests with // Default: null
  *             private_key?: scalar|Param|null, // The absolute path to the private key used to sign Responses to AuthRequests with // Default: null
- *             use_private_key_agent?: bool|Param, // Use the Private Key Agent key of public_key instead of a local private_key // Default: false
+ *             use_private_key_agent?: bool|Param, // Sign through the Private Key Agent using the key matching public_key. When false, sign locally using private_key. // Default: false
  *         },
  *         metadata?: array{
  *             entity_id_route?: scalar|Param|null, // The name of the route used to generate the entity id // Default: null
  *             public_key?: scalar|Param|null, // The absolute path to the public key used to sign the metadata // Default: null
  *             private_key?: scalar|Param|null, // The absolute path to the private key used to sign the metadata // Default: null
- *             use_private_key_agent?: bool|Param, // Use the Private Key Agent key of public_key instead of a local private_key // Default: false
+ *             use_private_key_agent?: bool|Param, // Sign through the Private Key Agent using the key matching public_key. When false, sign locally using private_key. // Default: false
  *         },
  *     },
  *     remote?: array{
