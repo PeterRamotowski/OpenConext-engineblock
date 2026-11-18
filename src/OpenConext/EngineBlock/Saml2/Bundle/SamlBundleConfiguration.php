@@ -73,8 +73,7 @@ final class SamlBundleConfiguration
     private static function hostedIdentity(ConfiguredKey $key): array
     {
         if ($key->usesPrivateKeyAgent()) {
-            // The bundle reads private_key unconditionally and treats an empty value as not configured.
-            return ['public_key' => $key->publicFile, 'private_key' => null, 'use_private_key_agent' => true];
+            return ['public_key' => $key->publicFile, 'use_private_key_agent' => true];
         }
 
         return ['public_key' => $key->publicFile, 'private_key' => $key->privateFile];

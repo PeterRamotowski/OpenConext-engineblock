@@ -69,7 +69,7 @@ class OpenConextEngineBlockExtensionTest extends TestCase
 
         $identityProvider = $container->getDefinition('surfnet_saml.configuration.hosted_entities')->getArgument(3);
         self::assertTrue($identityProvider['use_private_key_agent']);
-        self::assertEmpty($identityProvider['private_key']);
+        self::assertArrayNotHasKey('private_key', $identityProvider);
         self::assertTrue($container->getDefinition('surfnet_saml.configuration.metadata')->getProperties()['usePrivateKeyAgent']);
 
         $keyMap = $container->getDefinition('surfnet_saml.private_key_agent.key_map');
