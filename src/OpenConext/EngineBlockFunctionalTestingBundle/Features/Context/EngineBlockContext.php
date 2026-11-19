@@ -23,6 +23,7 @@ use Behat\Mink\Exception\ExpectationException;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
+use EngineBlock_ApplicationSingleton;
 use OpenConext\EngineBlock\Service\Wayf\RememberedIdpCookie;
 use OpenConext\EngineBlockBundle\Sbs\Msg;
 use OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\DataStore\AbstractDataStore;
@@ -797,6 +798,23 @@ class EngineBlockContext extends AbstractSubContext
             throw new ExpectationException(
                 'The rememberedidps cookie should not be set, but it is',
                 $this->getMinkContext()->getSession()->getDriver()
+            );
+        }
+    }
+
+    /**
+     * @Then /^the session cookie should (be|not be) set$/
+     */
+    public function theSessionCookieShouldBeSet(string $expectation): void
+    {
+        $cookieName = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getSessionCookieName();
+        $session = $this->getMinkContext()->getSession();
+        $isSet = $session->getCookie($cookieName) !== null;
+
+        if ($isSet !== ($expectation === 'be')) {
+            throw new ExpectationException(
+                sprintf('The session cookie "%s" should %s set', $cookieName, $expectation),
+                $session->getDriver()
             );
         }
     }

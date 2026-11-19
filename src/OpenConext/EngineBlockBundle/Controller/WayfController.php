@@ -155,8 +155,18 @@ class WayfController
                     }
                 }
                 // Clear all session-data on the server
-                session_start();
-                session_destroy();
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    session_unset();
+                    session_destroy();
+                    // Close Symfony's session storage before the response listener manages cookies.
+                    if ($request->hasSession() && $request->getSession()->isStarted()) {
+                        $request->getSession()->save();
+                    }
+                } elseif ($request->hasPreviousSession()) {
+                    $session = $request->getSession();
+                    $session->invalidate();
+                    $session->save();
+                }
                 $removal = true;
                 $all = true;
             } else {
