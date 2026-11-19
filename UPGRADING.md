@@ -14,13 +14,18 @@ who are in the middle of a login during the upgrade must restart it.
   roll forward also require a fresh cookie name; a rollback keeps `main`. PHP deserializes session data before
   EngineBlock can check it, so a new cookie name alone does not keep releases apart. See
   [docs/session_cutover.md](docs/session_cutover.md).
-- Present AuthnRequest signatures are always verified, even when signing is optional. Outgoing authentication
-  requests accept one response from the intended IdP at the intended ACS. They expire after 300 seconds by default.
-  Set `saml_request_lifetime_seconds` to a positive number of seconds to change this limit.
+- In Manage, migrate IdP and SP attribute manipulations that use `SAML2\` classes or setters on `getAssertion()`.
+  Use `$responseObj` setters and assign `\OpenConext\EngineBlock\Saml2\Message\Saml2Value::nameId($value, $format)`
+  to `$response['__']['CustomNameId']` for NameID overrides. `$requestObj->getDestination()` now returns the full URL.
+- EngineBlock verifies every AuthnRequest signature and rejects RSA-SHA1 by default. Move affected partners and
+  Manage settings to RSA-SHA2. Redirect verification and outgoing signing require RSA-SHA256, RSA-SHA384 or RSA-SHA512.
+- Signed AuthnRequests require a `Destination`. If supplied, it must exactly match the configured base or routed SSO URL.
+- Outgoing authentication requests accept one response from the intended IdP at the intended ACS. They expire after
+  300 seconds by default. Set `saml_request_lifetime_seconds` to a positive value to change the limit.
 - Every `RequesterID` in an AuthnRequest must be an absolute URI. A malformed value now rejects the request.
   An unknown but well-formed `RequesterID` is still ignored for WAYF scoping.
-- Check configured MFA methods and default requested authentication contexts in Manage. These values must be
-  absolute URIs. The `transparent_authn_context` setting still tells EngineBlock to forward the SP's context.
+- Metadata pushes require absolute URIs for MFA methods, `defaultRAC` and Stepup LoAs. The
+  `transparent_authn_context` setting still forwards the SP's context.
 - A successful response to an AuthnRequest must include a bearer confirmation with `Recipient` set to the
   expected ACS and `InResponseTo` matching the request ID. IdPs that omit either value must update their response.
   Reloading a consent page that resubmits the IdP response requires restarting the login.
