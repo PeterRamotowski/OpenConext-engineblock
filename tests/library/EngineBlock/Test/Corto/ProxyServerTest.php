@@ -18,14 +18,16 @@
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
+use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\InMemoryMetadataRepository;
+use OpenConext\EngineBlock\Metadata\MfaEntityCollection;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Surfnet\SamlBundle\Signing\KeyPair;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Twig\Environment;
 
-/**
- * Note: this Test only tests setting of NameIDFormat, add other tests if required
- */
 class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -106,7 +108,39 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('provideKeyExpectations')]
+    #[DataProvider('invalidAuthnContextConfigurationProvider')]
+    public function testInvalidConfiguredAuthnContextIsAConfigurationError(
+        ?string $defaultAuthnContext,
+        ?string $mfaMethod
+    ): void {
+        $spEntityId = 'https://sp.example.org/metadata';
+        $idp = new IdentityProvider(
+            'https://idp.example.org/metadata',
+            mfaEntities: $mfaMethod === null
+                ? null
+                : MfaEntityCollection::fromMetadataPush([['name' => $spEntityId, 'level' => $mfaMethod]]),
+            defaultRAC: $defaultAuthnContext,
+        );
+        $proxyServer = $this->factoryProxyServer();
+        $proxyServer->setLogger(new NullLogger());
+        $proxyServer->setRepository(new InMemoryMetadataRepository([$idp], [new ServiceProvider($spEntityId)]));
+        $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['issuer' => $spEntityId]);
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('expected an absolute URI');
+
+        $proxyServer->sendAuthenticationRequest($request, $idp->entityId);
+    }
+
+    public static function invalidAuthnContextConfigurationProvider(): array
+    {
+        return [
+            'default authentication context' => ['invalid-default-context', null],
+            'MFA method' => [null, 'invalid-mfa-method'],
+        ];
+    }
+
+    #[DataProvider('provideKeyExpectations')]
     public function testGetSigningCertificates(?string $keyOverride, bool $force, string $expectedResult)
     {
         $keys = [

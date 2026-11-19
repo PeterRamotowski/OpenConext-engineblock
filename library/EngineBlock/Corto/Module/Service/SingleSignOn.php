@@ -386,7 +386,7 @@ class EngineBlock_Corto_Module_Service_SingleSignOn implements EngineBlock_Corto
             throw new EngineBlock_Corto_Exception_InvalidAcsLocation(
                 'Unsolicited sign-on service called with invalid parameters: ' . $e->getMessage(),
                 EngineBlock_Exception::CODE_NOTICE,
-                $e instanceof Exception ? $e : null
+                $e
             );
         }
 

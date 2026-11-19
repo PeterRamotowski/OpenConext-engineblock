@@ -57,6 +57,7 @@ use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XMLSchema\Type\IDValue;
 use SimpleSAML\XMLSchema\Type\NCNameValue;
 use Twig\Environment;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 class EngineBlock_Corto_ProxyServer
@@ -488,13 +489,13 @@ class EngineBlock_Corto_ProxyServer
         try {
             $classRef = SAMLAnyURIValue::fromString($classRef)->getValue();
         } catch (ProtocolViolationException $exception) {
-            throw new EngineBlock_Corto_Exception_InvalidMfaAuthnContextClassRef(
+            throw new InvalidConfigurationException(
                 sprintf(
                     'Invalid configured AuthnContextClassRef for IdP "%s" and SP "%s": expected an absolute URI',
                     $identityProvider->entityId,
                     $spEntityId
                 ),
-                EngineBlock_Exception::CODE_WARNING,
+                0,
                 $exception
             );
         }
