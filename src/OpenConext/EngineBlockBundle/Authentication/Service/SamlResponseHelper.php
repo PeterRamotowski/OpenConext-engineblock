@@ -53,9 +53,11 @@ class SamlResponseHelper
 
         // Copy of behavior found in: https://github.com/OpenConext/OpenConext-engineblock/blob/8aea9cdaa8162d92b391c35c7c66ce6802273f72/library/EngineBlock/Corto/ProxyServer.php#L582-L598
         $serviceProvider = $this->metaDataRepository->findServiceProviderByEntityId($spEntityId);
-        $isTransparant = $serviceProvider->getCoins()->isTransparentIssuer();
-        if ($isTransparant) {
-            $issuer = Saml2Value::issuer($originalResponse->getOriginalIssuer());
+        if ($serviceProvider->getCoins()->isTransparentIssuer()) {
+            $originalIssuer = $originalResponse->getOriginalIssuer();
+            if (is_string($originalIssuer) && $originalIssuer !== '') {
+                $issuer = Saml2Value::issuer($originalIssuer);
+            }
         }
 
         $response = new SAMLResponse(
