@@ -234,7 +234,7 @@ class MockStepupGateway
         );
 
         // 3. Validate destination
-        if (!$authnRequest->getDestination() === $fullRequestUri) {
+        if ($authnRequest->getDestination() !== $fullRequestUri) {
             throw new BadRequestHttpException(sprintf(
                 'Actual Destination "%s" does not match the AuthnRequest Destination "%s"',
                 $fullRequestUri,
@@ -243,10 +243,14 @@ class MockStepupGateway
         }
 
         // 4. Validate issuer
-        if (!$this->gatewayConfiguration->getServiceProviderEntityId() === $authnRequest->getIssuerValue()) {
+        $features = $this->application->getDiContainer()->getFeatureConfiguration();
+        $expectedIssuer = $features->isEnabled('eb.stepup.sfo.override_engine_entityid')
+            ? $this->sfoRolloverEntityId
+            : $this->gatewayConfiguration->getServiceProviderEntityId();
+        if ($expectedIssuer !== $authnRequest->getIssuerValue()) {
             throw new BadRequestHttpException(sprintf(
                 'Actual issuer "%s" does not match the AuthnRequest Issuer "%s"',
-                $this->gatewayConfiguration->getServiceProviderEntityId(),
+                $expectedIssuer,
                 $authnRequest->getIssuerValue()
             ));
         }

@@ -157,6 +157,6 @@ class StepupMockController extends AbstractController
      */
     private function getFullRequestUri(Request $request)
     {
-        return $request->getSchemeAndHttpHost() . $request->getBasePath() . $request->getRequestUri();
+        return $request->getUriForPath($request->getPathInfo());
     }
 }
