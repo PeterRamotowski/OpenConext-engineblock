@@ -66,10 +66,18 @@ class KeyPairFactory implements KeyPairFactoryInterface
      */
     public function buildAll(): array
     {
+        return array_values($this->buildAllByIdentifier());
+    }
+
+    /**
+     * @return array<int|string, X509KeyPair>
+     */
+    public function buildAllByIdentifier(): array
+    {
         $pairs = [];
 
         foreach (array_keys($this->keyPairConfiguration->all()) as $keyId) {
-            $pairs[] = $this->buildFromIdentifier((string)$keyId);
+            $pairs[$keyId] = $this->buildFromIdentifier((string) $keyId);
         }
 
         return $pairs;

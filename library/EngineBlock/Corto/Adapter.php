@@ -23,8 +23,8 @@ use OpenConext\EngineBlock\Metadata\MetadataRepository\Filter\RemoveOtherWorkflo
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\Visitor\DisableDisallowedEntitiesInWayfVisitor;
 use OpenConext\EngineBlock\Metadata\Service;
-use OpenConext\EngineBlock\Metadata\X509\EncryptionKeysConfiguration;
 use OpenConext\EngineBlock\Metadata\X509\InvalidEncryptionKeyConfigurationException;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
 
 class EngineBlock_Corto_Adapter
 {
@@ -463,19 +463,19 @@ class EngineBlock_Corto_Adapter
         }
 
         try {
-            $configuredKeys = EncryptionKeysConfiguration::fromArray($keysConfig, false);
-        } catch (InvalidEncryptionKeyConfigurationException $exception) {
+            $configuredPairs = (new KeyPairFactory($keysConfig))->buildAllByIdentifier();
+        } catch (InvalidEncryptionKeyConfigurationException | RuntimeException $exception) {
             throw new EngineBlock_Exception($exception->getMessage(), EngineBlock_Exception::CODE_ERROR, $exception);
         }
 
-        $publicKeyFactory = new EngineBlock_X509_CertificateFactory();
-        $keyPairs = array();
-        foreach ($configuredKeys->all() as $keyId => $configuredKey) {
-            $certificate = $publicKeyFactory->fromFile($configuredKey->publicFile);
-            // An agent key pair is certificate-only: no local private-key object is ever constructed for it.
-            $keyPairs[$keyId] = $configuredKey->usesPrivateKeyAgent()
-                ? EngineBlock_X509_KeyPair::forPrivateKeyAgent($certificate)
-                : new EngineBlock_X509_KeyPair($certificate, new EngineBlock_X509_PrivateKey($configuredKey->privateFile));
+        $keyPairs = [];
+        foreach ($configuredPairs as $keyId => $pair) {
+            $privateKey = $pair->getPrivateKey();
+            $keyPairs[$keyId] = new EngineBlock_X509_KeyPair(
+                new EngineBlock_X509_Certificate($pair->getCertificate()->toResource()),
+                $privateKey === null ? null : new EngineBlock_X509_PrivateKey($privateKey->getFilePath()),
+                $pair->usesPrivateKeyAgent()
+            );
         }
 
         $proxyServer->setKeyPairs($keyPairs);
