@@ -50,9 +50,12 @@ class EngineBlock_Saml2_MessageSerializer
 
         try {
             $document = DOMDocumentFactory::fromString((string) $samlMessageXml);
-            $messageDomElement = $document->getElementsByTagNameNS(self::NS_SAMLP, $elementName)->item(0);
-            if ($messageDomElement === null) {
-                throw new RuntimeException(sprintf('No samlp:%s element found', $elementName));
+            $messageDomElement = $document->documentElement;
+            if ($messageDomElement === null
+                || $messageDomElement->namespaceURI !== self::NS_SAMLP
+                || $messageDomElement->localName !== $elementName
+            ) {
+                throw new RuntimeException(sprintf('Expected samlp:%s as the document element', $elementName));
             }
 
             return $class::fromXML($messageDomElement);

@@ -20,6 +20,7 @@ use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\XML\samlp\Response;
+use SimpleSAML\XMLSchema\Exception\SchemaViolationException;
 
 class EngineBlock_Test_Saml2_ResponseAnnotationDecoratorTest extends TestCase
 {
@@ -90,6 +91,15 @@ class EngineBlock_Test_Saml2_ResponseAnnotationDecoratorTest extends TestCase
         $xml = $restored->toXml();
         $this->assertMatchesRegularExpression('#Name="urn:age"[^>]*><saml:AttributeValue [^>]*xsi:type="xs:integer">42<#', $xml);
         $this->assertMatchesRegularExpression('#Name="urn:mail"[^>]*><saml:AttributeValue [^>]*xsi:type="xs:string">john@#', $xml);
+    }
+
+    public function test_string_attributes_reject_characters_forbidden_by_xml(): void
+    {
+        $response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse();
+
+        $this->expectException(SchemaViolationException::class);
+
+        $response->setAttributes(['urn:mail' => ["john\x01@example.org"]]);
     }
 
     public function test_changes_rebuild_the_message_instead_of_mutating_it()

@@ -18,6 +18,8 @@
 
 namespace OpenConext\EngineBlock\Saml2\Message;
 
+use SimpleSAML\XML\Assert\Assert;
+use SimpleSAML\XMLSchema\Exception\SchemaViolationException;
 use SimpleSAML\XMLSchema\Type\Interface\AbstractAnySimpleType;
 
 /**
@@ -32,5 +34,6 @@ final class TypedStringValue extends AbstractAnySimpleType
 
     protected function validateValue(string $value): void
     {
+        Assert::validString($value, SchemaViolationException::class);
     }
 }

@@ -84,6 +84,7 @@ class EngineBlock_Test_Saml2_MessageSerializerTest extends TestCase
         return [
             'not xml' => ['this is not xml', Response::class],
             'other message type' => [$request, Response::class],
+            'nested message' => ['<wrapper>' . preg_replace('/^<\?xml[^>]+>\s*/', '', $request) . '</wrapper>', AuthnRequest::class],
             'schema violation' => [str_replace('Version="2.0"', 'Version="1.1"', $request), AuthnRequest::class],
         ];
     }

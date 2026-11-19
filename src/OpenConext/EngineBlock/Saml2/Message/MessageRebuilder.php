@@ -53,6 +53,10 @@ final class MessageRebuilder
         'authnContext', 'authnInstant', 'sessionNotOnOrAfter', 'sessionIndex', 'subjectLocality',
     ];
 
+    private const array AUTHN_CONTEXT_FIELDS = [
+        'authnContextClassRef', 'authnContextDecl', 'authnContextDeclRef', 'authenticatingAuthorities',
+    ];
+
     public static function response(Response $response, array $changes): Response
     {
         self::assertKnownFields($changes, self::RESPONSE_FIELDS, Response::class);
@@ -184,6 +188,7 @@ final class MessageRebuilder
 
     public static function authnContext(AuthnContext $authnContext, array $changes): AuthnContext
     {
+        self::assertKnownFields($changes, self::AUTHN_CONTEXT_FIELDS, AuthnContext::class);
         $value = self::valueResolver($changes);
 
         return new AuthnContext(
