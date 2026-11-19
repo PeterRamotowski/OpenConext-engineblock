@@ -5,6 +5,9 @@
 EngineBlock now uses saml2 v7 for its SAML messages. Session state written by earlier releases cannot be used: users
 who are in the middle of a login during the upgrade must restart it.
 
+- **Release blocker.** Replace the pinned Stepup SAML bundle fork with an official OpenConext release that supports
+  SAML2 v7, and remove the fork repository from Composer. Upgrade the pinned SAML2 release candidate to a validated
+  stable 7.x release that includes the typed attribute value fixes, then remove the local patch.
 - Add `session_cookie_name` to `parameters.yaml`, suggested value: `engineblock_session_v7`. Earlier releases used the
   fixed cookie name `main`.
 - The upgrade, a rollback and every roll forward require separate or purged session storage. The upgrade and every
