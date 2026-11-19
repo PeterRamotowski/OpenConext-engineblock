@@ -27,6 +27,7 @@ use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response as SamlResponse;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use SimpleSAML\XMLSecurity\XML\ds\KeyInfo;
 
 /**
@@ -273,7 +274,13 @@ class Response
         }
 
         if ($this->encryptionCertificate !== null || $this->encryptionSharedKey !== null) {
-            return XmlSecurity::encryptAssertion($element, $this->encryptionCertificate, $this->encryptionSharedKey);
+            return XmlSecurity::encryptAssertion(
+                $element,
+                $this->encryptionCertificate,
+                $this->encryptionSharedKey,
+                XmlSecurityConstants::BLOCK_ENC_AES128,
+                XmlSecurityConstants::KEY_TRANSPORT_OAEP_MGF1P
+            );
         }
 
         return $element;

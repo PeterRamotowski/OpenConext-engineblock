@@ -168,21 +168,26 @@ final class XmlSecurity
     }
 
     /**
-     * Encrypt a (standalone, possibly signed) assertion like saml2 4.x did: AES-128-CBC, with the session key
-     * transported with RSA-OAEP to the certificate, or directly with a shared (symmetric) key.
-     * The key transport algorithm is used without explicit OAEP parameters.
+     * Encrypt a standalone assertion with the supplied block cipher and a shared key or certificate.
+     * The optional key transport element carries the algorithm URI without explicit OAEP parameters.
      */
     public static function encryptAssertion(
         Element $assertion,
         ?string $certificate,
         ?string $sharedKey,
-        string $keyTransportAlgorithm = C::KEY_TRANSPORT_OAEP_MGF1P
+        string $blockCipherAlgorithm,
+        string $keyTransportAlgorithm
     ): Element {
         $plaintext = $assertion->ownerDocument->saveXml($assertion);
-        $blockCipher = new EncryptionMethod(AnyURIValue::fromString(C::BLOCK_ENC_AES128));
+        $blockCipher = new EncryptionMethod(AnyURIValue::fromString($blockCipherAlgorithm));
+        $cipher = C::$BLOCK_CIPHER_ALGORITHMS[$blockCipherAlgorithm] ?? null;
+        $keyLength = $cipher === null ? false : openssl_cipher_key_length($cipher);
+        if ($keyLength === false) {
+            throw new RuntimeException(sprintf('Unsupported fixture block cipher "%s"', $blockCipherAlgorithm));
+        }
 
         if ($certificate !== null) {
-            $sessionKey = SymmetricKey::generate(16);
+            $sessionKey = SymmetricKey::generate($keyLength);
             $keyTransport = (new KeyTransportAlgorithmFactory())->getAlgorithm(
                 $keyTransportAlgorithm,
                 self::certificate($certificate)->getPublicKey()
@@ -195,14 +200,13 @@ final class XmlSecurity
                 ),
             ]);
         } elseif ($sharedKey !== null) {
-            // saml2 4.x used AES-128-CBC with (the first 16 bytes of) the shared key
-            $sessionKey = new SymmetricKey(substr(str_pad($sharedKey, 16, "\0"), 0, 16));
+            $sessionKey = new SymmetricKey(substr(str_pad($sharedKey, $keyLength, "\0"), 0, $keyLength));
             $keyInfo = null;
         } else {
             throw new RuntimeException('Unable to encrypt the assertion without a certificate or shared key');
         }
 
-        $encryptor = (new EncryptionAlgorithmFactory())->getAlgorithm(C::BLOCK_ENC_AES128, $sessionKey);
+        $encryptor = (new EncryptionAlgorithmFactory())->getAlgorithm($blockCipherAlgorithm, $sessionKey);
         $encryptedData = new EncryptedData(
             new CipherData(new CipherValue(Base64BinaryValue::fromString(base64_encode($encryptor->encrypt($plaintext))))),
             null,

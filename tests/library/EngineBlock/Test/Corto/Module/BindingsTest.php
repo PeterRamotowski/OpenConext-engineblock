@@ -1024,7 +1024,9 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $encrypted = XmlSecurity::encryptAssertion(
             $this->documentElement($this->signedAssertionXml($this->assertionXml())),
             file_get_contents(__DIR__ . '/test.pem.crt'),
-            null
+            null,
+            XmlSecurityConstants::BLOCK_ENC_AES128,
+            XmlSecurityConstants::KEY_TRANSPORT_OAEP_MGF1P
         );
         $this->postMessage('SAMLResponse', $this->signedResponseXml(
             $this->responseXml(assertions: $this->saveXml($encrypted)),
@@ -1325,6 +1327,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
             $this->documentElement($this->signedAssertionXml($this->assertionXml())),
             file_get_contents(__DIR__ . '/test.pem.crt'),
             null,
+            XmlSecurityConstants::BLOCK_ENC_AES128,
             XmlSecurityConstants::KEY_TRANSPORT_OAEP
         );
         $this->postMessage('SAMLResponse', $this->signedResponseXml(
@@ -1442,6 +1445,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
             $this->documentElement($this->signedAssertionXml($this->assertionXml())),
             GeneratedKeyPair::named($recipient)->certificatePem(),
             null,
+            XmlSecurityConstants::BLOCK_ENC_AES128,
             $keyTransportAlgorithm
         );
 

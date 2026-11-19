@@ -35,6 +35,7 @@ use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
@@ -265,7 +266,9 @@ class VerifiedResponseProcessorTest extends TestCase
         $encrypted = XmlSecurity::encryptAssertion(
             DOMDocumentFactory::fromString($assertion)->documentElement,
             $key->certificateData(),
-            null
+            null,
+            XmlSecurityConstants::BLOCK_ENC_AES128,
+            XmlSecurityConstants::KEY_TRANSPORT_OAEP_MGF1P
         );
 
         return $encrypted->ownerDocument->saveXML($encrypted);
