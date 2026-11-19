@@ -12,7 +12,8 @@ who are in the middle of a login during the upgrade must restart it.
   EngineBlock can check it, so a new cookie name alone does not keep releases apart. See
   [docs/session_cutover.md](docs/session_cutover.md).
 - Present AuthnRequest signatures are always verified, even when signing is optional. Outgoing authentication
-  requests expire after five minutes and accept one response, from the intended IdP at the intended ACS.
+  requests accept one response from the intended IdP at the intended ACS. They expire after 300 seconds by default.
+  Set `saml_request_lifetime_seconds` to a positive number of seconds to change this limit.
 - Every `RequesterID` in an AuthnRequest must be an absolute URI. A malformed value now rejects the request.
   An unknown but well-formed `RequesterID` is still ignored for WAYF scoping.
 - Check configured MFA methods and default requested authentication contexts in Manage. These values must be

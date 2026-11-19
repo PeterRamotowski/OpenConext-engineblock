@@ -42,8 +42,13 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
      */
     private $requestStack;
 
-    public function __construct(RequestStack $requestStack)
-    {
+    public function __construct(
+        RequestStack $requestStack,
+        private readonly int $requestLifetimeSeconds = self::REQUEST_LIFETIME_SECONDS
+    ) {
+        if ($requestLifetimeSeconds <= 0) {
+            throw new InvalidArgumentException('saml_request_lifetime_seconds must be a positive integer');
+        }
         $this->requestStack = $requestStack;
     }
 
@@ -135,11 +140,18 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
         $links[$fromRequest->getId()] = $toRequest->getId();
         $session->set(self::SESSION_KEY_LINKS, $links);
 
-        $pending = $session->get(self::SESSION_KEY_PENDING, []);
+        $issuedAt = $fromRequest->getIssueInstant();
+        $expirationCutoff = $issuedAt - $this->requestLifetimeSeconds;
+        $pending = array_filter(
+            $session->get(self::SESSION_KEY_PENDING, []),
+            static fn (mixed $context): bool => is_array($context)
+                && is_int($context['issuedAt'] ?? null)
+                && $context['issuedAt'] > $expirationCutoff
+        );
         $pending[$fromRequest->getId()] = [
             'identityProvider' => $identityProvider,
             'assertionConsumerUrl' => $fromRequest->getAssertionConsumerServiceURL(),
-            'issuedAt' => $fromRequest->getIssueInstant(),
+            'issuedAt' => $issuedAt,
         ];
         $session->set(self::SESSION_KEY_PENDING, $pending);
 
@@ -160,7 +172,7 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
         $pending = $session->get(self::SESSION_KEY_PENDING, []);
         $context = $pending[$requestId] ?? null;
         if (!is_array($context) || !is_int($context['issuedAt'] ?? null)
-            || $now - $context['issuedAt'] >= self::REQUEST_LIFETIME_SECONDS
+            || $now - $context['issuedAt'] >= $this->requestLifetimeSeconds
             || $context['issuedAt'] > $now + 60
         ) {
             throw new EngineBlock_Corto_Module_Services_SessionLostException(

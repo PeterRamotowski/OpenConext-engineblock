@@ -173,6 +173,9 @@ parameters:
     ## See docs/session_cutover.md
     session_cookie_name: engineblock_session_v7
 
+    ## Lifetime of a pending outgoing SAML authentication request, in seconds.
+    saml_request_lifetime_seconds: 300
+
     ## Language cookie settings
     ## The value for the domain is also used for clearing SSO Notification cookies if the feature is enabled
     cookie.path: /

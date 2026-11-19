@@ -26,14 +26,15 @@ use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
 {
     private Session $session;
+    private RequestStack $requestStack;
     private EngineBlock_Saml2_AuthnRequestSessionRepository $repo;
 
     protected function setUp(): void
     {
         $this->session = new Session(new MockArraySessionStorage());
-        $requestStack = $this->createMock(RequestStack::class);
-        $requestStack->method('getSession')->willReturn($this->session);
-        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($requestStack);
+        $this->requestStack = $this->createStub(RequestStack::class);
+        $this->requestStack->method('getSession')->willReturn($this->session);
+        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($this->requestStack);
     }
 
     private function makeRequest(string $id): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
@@ -218,11 +219,34 @@ class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
         }
     }
 
-    private function linkPendingRequest(): void
+    public function test_configured_lifetime_applies_at_the_expiry_boundary(): void
+    {
+        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($this->requestStack, 600);
+        $this->linkPendingRequest();
+        $this->linkPendingRequest('_second-idp-request');
+
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1599);
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->consumePendingRequest('_second-idp-request', 'https://idp', 'https://engine/acs', 1600);
+    }
+
+    public function test_linking_prunes_expired_pending_requests_and_keeps_their_sp_links(): void
+    {
+        $this->linkPendingRequest('_expired');
+        $this->linkPendingRequest('_recent', 1299);
+        $this->linkPendingRequest('_new', 1300);
+
+        $this->assertSame(['_recent', '_new'], array_keys($this->session->get('SAMLRequestPending')));
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_expired'));
+    }
+
+    private function linkPendingRequest(string $id = '_idp', int $issueInstant = 1000): void
     {
         $spRequest = $this->makeRequest('_sp');
         $idpRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest([
-            'id' => '_idp', 'issueInstant' => 1000, 'acsUrl' => 'https://engine/acs',
+            'id' => $id, 'issueInstant' => $issueInstant, 'acsUrl' => 'https://engine/acs',
         ]);
         $this->repo->store($spRequest);
         $this->repo->link($idpRequest, $spRequest, 'https://idp');

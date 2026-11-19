@@ -5,6 +5,7 @@ parameters:
     locale: en
     container.autowiring.strict_mode: true
     session_cookie_name: engineblock_session_v7
+    saml_request_lifetime_seconds: 300
 
     # This value is used as cache-buster, replaced by the release script
     asset_version: "#ASSET_VERSION#"

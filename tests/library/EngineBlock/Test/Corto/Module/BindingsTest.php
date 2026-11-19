@@ -784,6 +784,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $this->assertCount(1, $response->getAssertions());
         $this->assertSame('john-doe', $response->getNameIdValue());
         Phake::verify($this->proxyServer)->findRequestFromRequestId(self::REQUEST_ID);
+        Phake::verify($this->proxyServer)->consumePendingRequest(self::REQUEST_ID, self::IDP_ENTITY_ID, self::ACS);
     }
 
     public function testUnsignedResponseWithoutDestinationIsAddressedToTheExpectedDestination()
@@ -798,6 +799,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $this->assertNull($response->getSignatureMethod());
         $this->assertSame(self::RSA_SHA512, $response->getAssertionSignatureMethod());
         Phake::verify($this->proxyServer)->findRequestFromRequestId(self::REQUEST_ID);
+        Phake::verify($this->proxyServer)->consumePendingRequest(self::REQUEST_ID, self::IDP_ENTITY_ID, self::ACS);
     }
 
     public function testSignedResponseWithoutDestinationIsRejected()
@@ -812,23 +814,64 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
     }
 
     #[DataProvider('uncorrelatedAssertionProvider')]
-    public function testUnsignedResponseRequiresTheValidatedAssertionToCorrelate(array $assertionOptions)
+    public function testUnsignedResponseRequiresTheValidatedAssertionToCorrelate(
+        array $assertionOptions,
+        string $expectedMessage
+    ): void
     {
         $this->useIdentityProvider();
         $assertion = $this->signedAssertionXml($this->assertionXml(...$assertionOptions));
         $this->postMessage('SAMLResponse', $this->responseXml(assertions: $assertion));
 
-        $this->expectException(ResponseProcessingFailedException::class);
-
-        $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+        try {
+            $this->bindings->receiveResponse(self::EB_SP_ENTITY_ID, self::ACS);
+            $this->fail('Expected the response to be rejected');
+        } catch (ResponseProcessingFailedException $exception) {
+            $this->assertStringContainsString($expectedMessage, $exception->getMessage());
+            Phake::verify($this->proxyServer, Phake::never())->consumePendingRequest(Phake::anyParameters());
+        }
     }
 
     public static function uncorrelatedAssertionProvider(): array
     {
         return [
-            'no InResponseTo' => [['inResponseTo' => null]],
-            'no Recipient' => [['recipient' => null]],
-            'other issuer' => [['issuer' => 'https://other-idp.example.edu/metadata']],
+            'no InResponseTo' => [
+                ['inResponseTo' => null],
+                'requires a SubjectConfirmation with Recipient and InResponseTo',
+            ],
+            'no Recipient' => [
+                ['recipient' => null],
+                'requires a SubjectConfirmation with Recipient and InResponseTo',
+            ],
+            'other issuer' => [
+                ['issuer' => 'https://other-idp.example.edu/metadata'],
+                'The Assertion Issuer does not match the Response Issuer',
+            ],
+            'other InResponseTo' => [['inResponseTo' => '_other-request'], 'does not match the Response InResponseTo'],
+            'other Recipient' => [
+                ['recipient' => 'https://engine.example.org/other-acs'],
+                'does not match the current destination',
+            ],
+        ];
+    }
+
+    #[DataProvider('mismatchedSubjectConfirmationProvider')]
+    public function testBindingsRejectMismatchedConfirmationEvenAfterAssertionValidation(array $assertionOptions): void
+    {
+        $response = Response::fromXML($this->documentElement($this->responseXml()));
+        $assertion = $this->parseAssertion($this->assertionXml(...$assertionOptions));
+
+        $this->expectException(ResponseProcessingFailedException::class);
+        $this->expectExceptionMessage('The SubjectConfirmation does not match the expected recipient and request');
+
+        $this->invokePrivate('assertVerifiedCorrelation', $response, $assertion, self::ACS);
+    }
+
+    public static function mismatchedSubjectConfirmationProvider(): array
+    {
+        return [
+            'other InResponseTo' => [['inResponseTo' => '_other-request']],
+            'other Recipient' => [['recipient' => 'https://engine.example.org/other-acs']],
         ];
     }
 
@@ -905,6 +948,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         }
 
         Phake::verify($this->proxyServer)->findRequestFromRequestId(self::REQUEST_ID);
+        Phake::verify($this->proxyServer)->consumePendingRequest(self::REQUEST_ID, self::IDP_ENTITY_ID, self::ACS);
         Phake::verify($this->mfaHelper)->isTransparent(self::SP_ENTITY_ID, self::IDP_ENTITY_ID);
     }
 
