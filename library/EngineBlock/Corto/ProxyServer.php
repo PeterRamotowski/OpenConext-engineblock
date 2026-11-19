@@ -57,7 +57,6 @@ use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XMLSchema\Type\IDValue;
 use SimpleSAML\XMLSchema\Type\NCNameValue;
 use Twig\Environment;
-use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 class EngineBlock_Corto_ProxyServer
@@ -484,23 +483,27 @@ class EngineBlock_Corto_ProxyServer
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request,
         string $classRef,
         IdentityProvider $identityProvider,
-        string $spEntityId
+        ?string $spEntityId,
+        string $comparison = 'exact'
     ): void {
         try {
             $classRef = SAMLAnyURIValue::fromString($classRef)->getValue();
         } catch (ProtocolViolationException $exception) {
-            throw new InvalidConfigurationException(
+            throw new EngineBlock_Corto_Exception_InvalidMfaAuthnContextClassRef(
                 sprintf(
                     'Invalid configured AuthnContextClassRef for IdP "%s" and SP "%s": expected an absolute URI',
                     $identityProvider->entityId,
-                    $spEntityId
+                    $spEntityId ?? '(unknown)'
                 ),
-                0,
+                EngineBlock_Exception::CODE_ERROR,
                 $exception
             );
         }
 
-        $request->setRequestedAuthnContext(['AuthnContextClassRef' => [$classRef]]);
+        $request->setRequestedAuthnContext([
+            'AuthnContextClassRef' => [$classRef],
+            'Comparison' => $comparison,
+        ]);
     }
 
     public function sendStepupAuthenticationRequest(
@@ -522,12 +525,13 @@ class EngineBlock_Corto_ProxyServer
         $ebRequest->setForceAuthn($isForceAuthn);
 
         // Add Stepup specific data
-        $ebRequest->setRequestedAuthnContext([
-            'AuthnContextClassRef' => [
-                $authnContextClassRef->getIdentifier()
-            ],
-            'Comparison' => 'minimum',
-        ]);
+        $this->setConfiguredAuthnContext(
+            $ebRequest,
+            $authnContextClassRef->getIdentifier(),
+            $identityProvider,
+            $spRequest->getIssuerValue(),
+            'minimum'
+        );
         $ebRequest->setNameId(
             Saml2Value::nameId($nameId->getContent()->getValue(), Constants::NAMEID_UNSPECIFIED)
         );

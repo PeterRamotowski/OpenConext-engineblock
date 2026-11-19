@@ -25,7 +25,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Surfnet\SamlBundle\Signing\KeyPair;
-use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Twig\Environment;
 
 class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
@@ -126,7 +125,7 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         $proxyServer->setRepository(new InMemoryMetadataRepository([$idp], [new ServiceProvider($spEntityId)]));
         $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['issuer' => $spEntityId]);
 
-        $this->expectException(InvalidConfigurationException::class);
+        $this->expectException(EngineBlock_Corto_Exception_InvalidMfaAuthnContextClassRef::class);
         $this->expectExceptionMessage('expected an absolute URI');
 
         $proxyServer->sendAuthenticationRequest($request, $idp->entityId);

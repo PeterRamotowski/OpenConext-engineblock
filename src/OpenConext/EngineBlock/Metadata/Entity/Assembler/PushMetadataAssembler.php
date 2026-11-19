@@ -27,6 +27,7 @@ use OpenConext\EngineBlock\Metadata\Factory\MduiPushAssemblerFactory;
 use OpenConext\EngineBlock\Metadata\IndexedService;
 use OpenConext\EngineBlock\Metadata\Logo;
 use OpenConext\EngineBlock\Metadata\MfaEntityCollection;
+use OpenConext\EngineBlock\Metadata\MfaEntityFactory;
 use OpenConext\EngineBlock\Metadata\Organization;
 use OpenConext\EngineBlock\Metadata\Service;
 use OpenConext\EngineBlock\Metadata\ShibMdScope;
@@ -39,6 +40,8 @@ use OpenConext\EngineBlockBundle\Localization\LanguageSupportProvider;
 use ParseError;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
 use stdClass;
 
 /**
@@ -236,6 +239,9 @@ class PushMetadataAssembler implements MetadataAssemblerInterface
         $properties += $this->setPathFromObjectBool([$connection, 'metadata:coin:requesterid_required'], 'requesteridRequired');
         $properties += $this->setPathFromObjectBool([$connection, 'metadata:coin:sign_response'], 'signResponse');
         $properties += $this->setPathFromObjectString([$connection, 'metadata:coin:stepup:requireloa'], 'stepupRequireLoa');
+        if ($properties['stepupRequireLoa'] !== null && $properties['stepupRequireLoa'] !== '') {
+            $this->assertAuthnContextUri($properties['stepupRequireLoa'], 'stepup:requireloa', $connection->name);
+        }
         $properties += $this->setPathFromObjectBool([$connection, 'metadata:coin:stepup:allow_no_token'], 'stepupAllowNoToken');
         $properties += $this->setPathFromObjectBool([$connection, 'metadata:coin:stepup:forceauthn'], 'stepupForceAuthn');
 
@@ -266,6 +272,9 @@ class PushMetadataAssembler implements MetadataAssemblerInterface
 
         $properties += $this->discoveryAssembler->assembleDiscoveries($connection);
         $properties += $this->setPathFromObjectString(array($connection, 'metadata:coin:defaultRAC'), 'defaultRAC');
+        if ($properties['defaultRAC'] !== null) {
+            $this->assertAuthnContextUri($properties['defaultRAC'], 'defaultRAC', $connection->name);
+        }
 
         $properties += $this->setPathFromObjectBool(
             [$connection, 'metadata:coin:policy_enforcement_decision_required'],
@@ -553,7 +562,11 @@ class PushMetadataAssembler implements MetadataAssemblerInterface
         $connections = [];
         foreach ($connection->stepup_connections as $sp) {
             if (isset($sp->name, $sp->level)) {
-                $connections[(string)$sp->name] = (string)$sp->level;
+                $level = (string) $sp->level;
+                if ($level !== '') {
+                    $this->assertAuthnContextUri($level, sprintf('Stepup LoA for SP "%s"', $sp->name), $connection->name);
+                }
+                $connections[(string) $sp->name] = $level;
             }
         }
 
@@ -642,15 +655,32 @@ class PushMetadataAssembler implements MetadataAssemblerInterface
 
         $entities = [];
         foreach ($connection->mfa_entities as $sp) {
+            $level = (string) $sp->level;
+            if ($level !== MfaEntityFactory::TRANSPARENT_AUTHN_CONTEXT) {
+                $this->assertAuthnContextUri($level, sprintf('MFA method for SP "%s"', $sp->name), $connection->name);
+            }
             $entities[] = [
-                'name' => (string)$sp->name,
-                'level' => (string)$sp->level,
+                'name' => (string) $sp->name,
+                'level' => $level,
             ];
         }
 
         return [
             'mfaEntities' => MfaEntityCollection::fromMetadataPush($entities)
         ];
+    }
+
+    private function assertAuthnContextUri(string $value, string $field, string $entityId): void
+    {
+        try {
+            SAMLAnyURIValue::fromString($value);
+        } catch (ProtocolViolationException $exception) {
+            throw new RuntimeException(
+                sprintf('Invalid %s for entity "%s": expected an absolute URI', $field, $entityId),
+                0,
+                $exception
+            );
+        }
     }
 
     private function validateManipulationCode(string $entityId, string $code): void
