@@ -46,11 +46,6 @@ class EngineBlock_Saml2_AuthnRequestFactory
             $nameIdPolicy['Format'] = $idpMetadata->nameIdFormat;
         }
 
-        // SAML 2.0 errata E14: AllowCreate="true" must not be combined with the transient format.
-        if ($idpMetadata->nameIdFormat === Constants::NAMEID_TRANSIENT) {
-            unset($nameIdPolicy['AllowCreate']);
-        }
-
         $destination = isset($idpMetadata->singleSignOnServices[0]) ? $idpMetadata->singleSignOnServices[0]->location : null;
         $request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest(
             id: IDValue::fromString($server->getNewId(\OpenConext\EngineBlock\Saml2\IdGenerator::ID_USAGE_SAML2_REQUEST)),
