@@ -27,6 +27,7 @@ use PHPUnit\Framework\Attributes\RequiresMethod;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use SimpleSAML\SAML2\Compat\AbstractContainer;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\XMLSecurity\Alg\Signature\PrivateKeyAgentRSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
@@ -48,15 +49,18 @@ class SignerFactoryTest extends TestCase
     private const RSA_SHA512 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512';
 
     private BridgeContainer $container;
+    private AbstractContainer $originalContainer;
 
     protected function setUp(): void
     {
+        $this->originalContainer = ContainerSingleton::getInstance();
         $this->container = new BridgeContainer(new NullLogger(), new MockClock());
         ContainerSingleton::setContainer($this->container);
     }
 
     protected function tearDown(): void
     {
+        ContainerSingleton::setContainer($this->originalContainer);
         AlgorithmRegistrar::reset();
     }
 

@@ -37,7 +37,8 @@ use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
  * surfnet_saml.private_key_agent.keys that EngineBlock derives from its encryption_keys.
  *
  * It answers the agent HTTP API with locally held test keys and records every request, so tests observe agent
- * call counts, key names and algorithms without a network. Only one instance may be registered at a time.
+ * call counts, key names and algorithms without a network. It checks the configured bearer token for each key.
+ * Only one instance may be registered at a time.
  */
 final class FakePrivateKeyAgent implements ClientInterface
 {
@@ -53,6 +54,9 @@ final class FakePrivateKeyAgent implements ClientInterface
      * @var list<array{operation: string, key: string, algorithm: string}>
      */
     public array $requests = [];
+
+    /** @var array<string, string> */
+    private array $tokens = [];
 
     private ?int $failureStatus = null;
     private bool $unreachable = false;
@@ -81,7 +85,8 @@ final class FakePrivateKeyAgent implements ClientInterface
             ),
             []
         );
-        $tokens = new ConfiguredTokenProvider(array_map(static fn (array $key): string => $key['token'], $keys));
+        $this->tokens = array_map(static fn (array $key): string => $key['token'], $keys);
+        $tokens = new ConfiguredTokenProvider($this->tokens);
         $factory = new Psr17Factory();
 
         $this->registrar = new AlgorithmRegistrar(
@@ -111,6 +116,7 @@ final class FakePrivateKeyAgent implements ClientInterface
     {
         $this->registrar?->unregister();
         $this->registrar = null;
+        $this->tokens = [];
     }
 
     public function failWithStatus(int $status): void
@@ -150,7 +156,8 @@ final class FakePrivateKeyAgent implements ClientInterface
         if ($this->failureStatus !== null) {
             return $this->json($this->failureStatus, ['error' => 'failure']);
         }
-        if (!str_starts_with($request->getHeaderLine('Authorization'), 'Bearer ')) {
+        $token = $this->tokens[$keyName] ?? null;
+        if ($token === null || !hash_equals('Bearer ' . $token, $request->getHeaderLine('Authorization'))) {
             return $this->json(401, ['error' => 'unauthenticated']);
         }
         $privateKey = $this->privateKeyPems[$keyName] ?? null;

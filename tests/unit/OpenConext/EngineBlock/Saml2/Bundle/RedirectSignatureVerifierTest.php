@@ -24,6 +24,7 @@ use PHPUnit\Framework\Attributes\RequiresMethod;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use SimpleSAML\SAML2\Compat\AbstractContainer;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
@@ -44,11 +45,18 @@ class RedirectSignatureVerifierTest extends TestCase
     ];
 
     private BridgeContainer $container;
+    private AbstractContainer $originalContainer;
 
     protected function setUp(): void
     {
+        $this->originalContainer = ContainerSingleton::getInstance();
         $this->container = new BridgeContainer(new NullLogger(), new MockClock());
         ContainerSingleton::setContainer($this->container);
+    }
+
+    protected function tearDown(): void
+    {
+        ContainerSingleton::setContainer($this->originalContainer);
     }
 
     public static function rsaSha2Algorithms(): array
