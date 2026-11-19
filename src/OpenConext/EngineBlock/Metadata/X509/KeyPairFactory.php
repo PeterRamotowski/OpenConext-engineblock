@@ -19,8 +19,8 @@
 namespace OpenConext\EngineBlock\Metadata\X509;
 
 use OpenConext\EngineBlock\Assert\Assertion;
-use OpenConext\EngineBlock\Exception\RuntimeException;
 use OpenConext\EngineBlockBundle\Exception\UnknownKeyIdException;
+use RuntimeException;
 
 class KeyPairFactory implements KeyPairFactoryInterface
 {
@@ -50,10 +50,7 @@ class KeyPairFactory implements KeyPairFactoryInterface
         Assertion::nonEmptyString($identifier, 'identifier');
 
         $key = $this->keyPairConfiguration->get($identifier);
-        $certificate = new X509Certificate(
-            openssl_x509_read(file_get_contents($key->publicFile)),
-            $key->publicFile
-        );
+        $certificate = (new X509CertificateFactory())->fromFile($key->publicFile);
 
         if ($key->usesPrivateKeyAgent()) {
             return X509KeyPair::forPrivateKeyAgent($certificate);

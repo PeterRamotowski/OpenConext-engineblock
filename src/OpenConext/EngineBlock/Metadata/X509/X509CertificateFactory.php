@@ -35,7 +35,7 @@ class X509CertificateFactory
      */
     public function fromFile($filePath)
     {
-        $pemString = file_get_contents($filePath);
+        $pemString = @file_get_contents($filePath);
 
         if (!$pemString) {
             throw new RuntimeException(sprintf('Unable to read file at path "%s".', $filePath));

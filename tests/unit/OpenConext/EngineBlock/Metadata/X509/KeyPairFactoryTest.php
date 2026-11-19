@@ -21,6 +21,7 @@ namespace OpenConext\EngineBlock\Metadata\X509;
 use OpenConext\EngineBlock\Exception\InvalidArgumentException;
 use OpenConext\EngineBlockBundle\Exception\UnknownKeyIdException;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 class KeyPairFactoryTest extends TestCase
 {
@@ -99,5 +100,21 @@ class KeyPairFactoryTest extends TestCase
         $this->expectException(UnknownKeyIdException::class);
         $this->expectExceptionMessage("Unknown key id 'ahnk-morpork'");
         $this->factory->buildFromIdentifier('ahnk-morpork');
+    }
+
+    public function test_missing_certificate_reports_its_path(): void
+    {
+        $certificate = __DIR__ . '/missing-certificate.crt';
+        $factory = new KeyPairFactory([
+            'default' => [
+                'publicFile' => $certificate,
+                'privateFile' => __DIR__ . '/test.pem.key',
+            ],
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(sprintf('Unable to read file at path "%s".', $certificate));
+
+        $factory->buildFromIdentifier('default');
     }
 }
