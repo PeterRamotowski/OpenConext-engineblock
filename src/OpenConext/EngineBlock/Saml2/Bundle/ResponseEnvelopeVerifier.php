@@ -20,23 +20,29 @@ namespace OpenConext\EngineBlock\Saml2\Bundle;
 
 use Exception;
 use Psr\Log\LoggerInterface;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\X509;
 use SimpleSAML\SAML2\Response\Exception\InvalidSignatureException;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
+use Surfnet\SamlBundle\Signing\CertificateKeys;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
 
 /**
  * Verifies the signature of a Response envelope and returns the Response as covered by that signature.
  *
- * Applies the same trust and algorithm policy as the bundle's ResponseProcessor: the identity provider's
- * configured certificates (keys, then certificate data, then certificate file), the transform guard and
- * any non-blacklisted RSA algorithm. The returned copy no longer carries the signature.
+ * Reuses the pinned bundle's certificate and algorithm helpers to match ResponseProcessor's trust rules.
+ * The returned copy no longer carries the signature.
  */
 final class ResponseEnvelopeVerifier
 {
-    public function __construct(private readonly LoggerInterface $logger)
-    {
+    public function __construct(
+        private readonly KeyLoader $keyLoader,
+        private readonly LoggerInterface $logger,
+        private readonly SignatureAlgorithmPolicy $signaturePolicy,
+    ) {
     }
 
     /**
@@ -50,13 +56,20 @@ final class ResponseEnvelopeVerifier
             throw new InvalidSignatureException('The Response is not signed');
         }
 
-        SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
         $algorithm = $signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue();
+        $this->signaturePolicy->assertAllowed($algorithm);
+        SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
 
         $lastException = null;
-        foreach (IdentityProviderSigningKeys::forIdentityProvider($identityProvider) as $index => $publicKey) {
+        foreach (CertificateKeys::extract($this->keyLoader, $identityProvider) as $index => $key) {
+            if (!$key instanceof X509) {
+                continue;
+            }
+
             try {
-                $verified = $response->verify(SignatureAlgorithmPolicy::forXmlVerification($algorithm, $publicKey));
+                $verified = $response->verify(
+                    SignatureAlgorithms::forVerification($algorithm, CertificateKeys::toPublicKey($key))
+                );
                 if ($verified instanceof Response) {
                     return $verified;
                 }

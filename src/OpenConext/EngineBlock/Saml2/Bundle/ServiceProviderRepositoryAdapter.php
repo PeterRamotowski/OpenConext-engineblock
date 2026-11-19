@@ -28,10 +28,8 @@ use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
 
 /**
- * Exposes EngineBlock's dynamic SP metadata to the bundle's incoming request bindings.
- *
- * Every configured SP certificate becomes a signing-only key, so the bundle verifies AuthnRequest
- * signatures against the same certificates (including rollover certificates) as EngineBlock.
+ * Supplies EngineBlock's dynamic SP metadata to the bundle's required repository configuration.
+ * Corto's Bindings selects the certificates used to verify EngineBlock's AuthnRequests.
  */
 final class ServiceProviderRepositoryAdapter implements ServiceProviderRepository
 {

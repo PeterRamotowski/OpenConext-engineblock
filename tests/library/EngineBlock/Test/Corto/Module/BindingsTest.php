@@ -39,7 +39,9 @@ use OpenConext\EngineBlock\Saml2\Bundle\DefaultKeyDecryptionKeyMap;
 use OpenConext\EngineBlock\Saml2\Bundle\FakePrivateKeyAgent;
 use OpenConext\EngineBlock\Saml2\Bundle\GeneratedKeyPair;
 use OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter;
+use OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier;
 use OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier;
+use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
 use OpenConext\EngineBlock\Saml2\Bundle\SamlBundleConfiguration;
 use OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor;
 use OpenConext\EngineBlockBundle\Exception\ResponseProcessingFailedException;
@@ -65,6 +67,7 @@ use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter;
+use Surfnet\SamlBundle\SAML2\Response\AssertionDecrypter;
 use Surfnet\SamlBundle\SAML2\Response\LocalAssertionDecrypter;
 use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Symfony\Component\Clock\MockClock;
@@ -121,7 +124,6 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
             )
         );
         Phake::when($this->proxyServer)->getConfig('WantsAuthnRequestsSigned')->thenReturn(false);
-        Phake::when($this->proxyServer)->getConfig('forbiddenSignatureMethods')->thenReturn([]);
         Phake::when($this->proxyServer)->getLogger()->thenReturn(new NullLogger());
 
         $this->originalSamlContainer = ContainerSingleton::getInstance();
@@ -772,7 +774,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
     public function testForbiddenRedirectSignatureMethodIsRejected()
     {
-        Phake::when($this->proxyServer)->getConfig('forbiddenSignatureMethods')->thenReturn([self::RSA_SHA256]);
+        $this->forbidSignatureMethod(self::RSA_SHA256);
         $this->useServiceProvider(['sp'], requestsMustBeSigned: true);
         $this->redirectMessage($this->signedRedirectQuery($this->authnRequestXml(), null, false));
 
@@ -1119,7 +1121,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
     public function testConfiguredForbiddenAssertionAlgorithmIsRejectedBeforeSessionEstablishment()
     {
         $this->useIdentityProvider();
-        Phake::when($this->proxyServer)->getConfig('forbiddenSignatureMethods')->thenReturn([self::RSA_SHA512]);
+        $this->forbidSignatureMethod(self::RSA_SHA512);
         $this->postMessage('SAMLResponse', $this->responseXml(
             assertions: $this->signedAssertionXml($this->assertionXml(), self::RSA_SHA512)
         ));
@@ -1135,7 +1137,7 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
     public function testConfiguredForbiddenErrorResponseAlgorithmIsRejected()
     {
         $this->useIdentityProvider();
-        Phake::when($this->proxyServer)->getConfig('forbiddenSignatureMethods')->thenReturn([self::RSA_SHA512]);
+        $this->forbidSignatureMethod(self::RSA_SHA512);
         $this->postMessage('SAMLResponse', $this->signedResponseXml($this->errorResponseXml(), 'idp', self::RSA_SHA512));
         $this->expectException(EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException::class);
 
@@ -1391,16 +1393,12 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
 
         // The decrypter chain of config/services/saml_bundle.yml, for these keys.
         $logger = new NullLogger();
-        $decrypter = new PolicyCheckingAssertionDecrypter(new AgentAssertionDecrypter(
+        $decrypter = new AgentAssertionDecrypter(
             new LocalAssertionDecrypter(new PrivateKeyLoader()),
             static fn () => DefaultKeyDecryptionKeyMap::create($encryptionKeys),
             $logger
-        ));
-        $processor = new VerifiedResponseProcessor(
-            new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), $logger, null, $decrypter),
-            new ResponseEnvelopeVerifier($logger),
-            $decrypter
         );
+        $processor = $this->createResponseProcessor(new SignatureAlgorithmPolicy([]), $decrypter);
         $symfonyContainer = (new ReflectionProperty(EngineBlock_Application_DiContainer::class, 'container'))
             ->getValue($this->originalDiContainer);
         $diContainer = Phake::partialMock(get_class($this->originalDiContainer), $symfonyContainer);
@@ -1680,6 +1678,37 @@ XML;
         $diContainer = Phake::partialMock(get_class($this->originalDiContainer), $symfonyContainer);
         Phake::when($diContainer)->getMfaHelper()->thenReturn($this->mfaHelper);
         $this->setDiContainer($diContainer);
+    }
+
+    private function forbidSignatureMethod(string $algorithm): void
+    {
+        $policy = new SignatureAlgorithmPolicy([$algorithm]);
+        $logger = new NullLogger();
+        $processor = $this->createResponseProcessor($policy, new LocalAssertionDecrypter(new PrivateKeyLoader()));
+        $symfonyContainer = (new ReflectionProperty(EngineBlock_Application_DiContainer::class, 'container'))
+            ->getValue($this->originalDiContainer);
+        $diContainer = Phake::partialMock(get_class($this->originalDiContainer), $symfonyContainer);
+        Phake::when($diContainer)->getSamlSignatureAlgorithmPolicy()->thenReturn($policy);
+        Phake::when($diContainer)->getSamlRedirectSignatureVerifier()
+            ->thenReturn(new RedirectSignatureVerifier($logger, $policy));
+        Phake::when($diContainer)->getSamlVerifiedResponseProcessor()->thenReturn($processor);
+        $this->setDiContainer($diContainer);
+    }
+
+    private function createResponseProcessor(
+        SignatureAlgorithmPolicy $policy,
+        AssertionDecrypter $innerDecrypter
+    ): VerifiedResponseProcessor {
+        $keyLoader = new KeyLoader();
+        $logger = new NullLogger();
+        $decrypter = new PolicyCheckingAssertionDecrypter($innerDecrypter, $policy);
+
+        return new VerifiedResponseProcessor(
+            new ResponseProcessor($keyLoader, new PrivateKeyLoader(), $logger, assertionDecrypter: $decrypter),
+            new ResponseEnvelopeVerifier($keyLoader, $logger, $policy),
+            $decrypter,
+            $policy
+        );
     }
 
     private function setDiContainer($diContainer): void

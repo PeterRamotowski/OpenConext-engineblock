@@ -1250,16 +1250,7 @@ class EngineBlock_Corto_ProxyServer
 
 //////// UTILITIES /////////
 
-    /**
-     * Log and verify the signature methods used.
-     *
-     * The signatures are not validated here, but the used methods
-     * (algorithms) are logged and an error is thrown if they're explicitly
-     * prohibited from use.
-     *
-     * @param EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse
-     */
-    public function checkResponseSignatureMethods(EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse)
+    public function logResponseSignatureMethods(EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse)
     {
         $issuer = $receivedResponse->getIssuerValue();
         $log = EngineBlock_ApplicationSingleton::getInstance()
@@ -1273,25 +1264,6 @@ class EngineBlock_Corto_ProxyServer
                 $receivedResponse->getAssertionSignatureMethod()
             )
         );
-
-        if ($receivedResponse->getSignatureMethod() !== null) {
-            $this->assertSignatureMethodIsAllowed($receivedResponse->getSignatureMethod());
-        }
-
-        if ($receivedResponse->getAssertionSignatureMethod() !== null) {
-            $this->assertSignatureMethodIsAllowed($receivedResponse->getAssertionSignatureMethod());
-        }
-    }
-
-    /**
-     * @param string $signatureMethod
-     * @throws EngineBlock_Corto_Module_Bindings_Exception
-     */
-    private function assertSignatureMethodIsAllowed($signatureMethod)
-    {
-        if (in_array($signatureMethod, $this->getConfig('forbiddenSignatureMethods'))) {
-            throw new EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException($signatureMethod);
-        }
     }
 
     /**

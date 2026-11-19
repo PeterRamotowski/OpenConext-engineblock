@@ -1,5 +1,4 @@
-# EngineBlock adapters around the SurfnetSamlBundle and the public aliases through which the legacy DI facade
-# (EngineBlock_Application_DiContainer) reaches bundle services.
+# EngineBlock adapters around the SurfnetSamlBundle. Corto reaches the public services through its DI facade.
 services:
     _defaults:
         public: true
@@ -9,26 +8,32 @@ services:
         arguments:
             - '@OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface'
 
+    OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy:
+        arguments:
+            - '%forbidden_signature_methods%'
+
     OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier:
         public: false
         arguments:
+            - '@surfnet_saml.saml2.keyloader'
             - '@logger'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
 
     OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor:
         arguments:
             - '@surfnet_saml.saml2.response_processor'
             - '@OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier'
             - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter'
-            - '%forbidden_signature_methods%'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
 
-    # Replaces the bundle's decrypter (local or agent) with one limited to the "default" key. Local
-    # identities decrypt with the bundle's local decrypter; agent identities only with the default agent key.
     OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter:
+        public: false
         decorates: surfnet_saml.saml2.assertion_decrypter
         arguments:
             - '@engineblock.saml_bundle.default_key_assertion_decrypter'
-            - '%forbidden_signature_methods%'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
 
+    # Local identities use the bundle's local decrypter. Agent identities can decrypt only with the default key.
     engineblock.saml_bundle.default_key_assertion_decrypter:
         class: Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter
         public: false
@@ -47,17 +52,8 @@ services:
     OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier:
         arguments:
             - '@logger'
-            - '%forbidden_signature_methods%'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
 
     OpenConext\EngineBlock\Saml2\Bundle\SignerFactory:
 
     OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder:
-
-    engineblock.saml_bundle.redirect_binding:
-        alias: surfnet_saml.http.redirect_binding
-
-    engineblock.saml_bundle.post_binding:
-        alias: surfnet_saml.http.post_binding
-
-    engineblock.saml_bundle.signing_service:
-        alias: surfnet_saml.signing_service

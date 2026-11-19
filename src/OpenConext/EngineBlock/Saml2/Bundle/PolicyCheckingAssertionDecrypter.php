@@ -18,7 +18,6 @@
 
 namespace OpenConext\EngineBlock\Saml2\Bundle;
 
-use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\saml\EncryptedAssertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
@@ -35,7 +34,7 @@ final class PolicyCheckingAssertionDecrypter implements AssertionDecrypter
 
     public function __construct(
         private readonly AssertionDecrypter $inner,
-        private readonly array $forbiddenAlgorithms = [],
+        private readonly SignatureAlgorithmPolicy $signaturePolicy,
     ) {
     }
 
@@ -47,9 +46,7 @@ final class PolicyCheckingAssertionDecrypter implements AssertionDecrypter
         $this->reset();
         $assertion = $this->inner->decrypt($encryptedAssertion, $serviceProvider, $identityProvider);
         $algorithm = $assertion->getSignature()?->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue();
-        if ($algorithm !== null && in_array($algorithm, $this->forbiddenAlgorithms, true)) {
-            throw UnsupportedSignatureAlgorithmException::forVerification($algorithm);
-        }
+        $this->signaturePolicy->assertAllowed($algorithm);
         $this->signatureMethod = $algorithm;
 
         return $assertion;

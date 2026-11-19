@@ -21,6 +21,7 @@ use OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory;
 use OpenConext\EngineBlock\Metadata\LoaRepository;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier;
+use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
 use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
 use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
 use OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor;
@@ -32,9 +33,6 @@ use OpenConext\EngineBlock\Stepup\StepupGatewayCallOutHelper;
 use OpenConext\EngineBlock\Validator\AllowedSchemeValidator;
 use OpenConext\EngineBlockBundle\Sbs\SbsAttributeMerger;
 use OpenConext\EngineBlockBundle\Sbs\SbsClientInterface;
-use Surfnet\SamlBundle\Http\PostBinding;
-use Surfnet\SamlBundle\Http\RedirectBinding;
-use Surfnet\SamlBundle\Service\SigningService;
 use Symfony\Component\DependencyInjection\ContainerInterface as SymfonyContainerInterface;
 use Symfony\Component\Mailer\MailerInterface;
 
@@ -437,14 +435,6 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     }
 
     /**
-     * @return array
-     */
-    public function getForbiddenSignatureMethods()
-    {
-        return (array) $this->container->getParameter('forbidden_signature_methods');
-    }
-
-    /**
      * @return AllowedSchemeValidator
      */
     public function getAcsLocationSchemeValidator()
@@ -623,14 +613,9 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
         return $this->container->get(EngineBlock_Saml2_AuthnRequestSessionRepository::class);
     }
 
-    public function getSamlRedirectBinding(): RedirectBinding
+    public function getSamlSignatureAlgorithmPolicy(): SignatureAlgorithmPolicy
     {
-        return $this->container->get('engineblock.saml_bundle.redirect_binding');
-    }
-
-    public function getSamlPostBinding(): PostBinding
-    {
-        return $this->container->get('engineblock.saml_bundle.post_binding');
+        return $this->container->get(SignatureAlgorithmPolicy::class);
     }
 
     public function getSamlRedirectSignatureVerifier(): RedirectSignatureVerifier
@@ -651,10 +636,5 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     public function getSamlUnsignedRedirectEncoder(): UnsignedRedirectEncoder
     {
         return $this->container->get(UnsignedRedirectEncoder::class);
-    }
-
-    public function getSamlSigningService(): SigningService
-    {
-        return $this->container->get('engineblock.saml_bundle.signing_service');
     }
 }

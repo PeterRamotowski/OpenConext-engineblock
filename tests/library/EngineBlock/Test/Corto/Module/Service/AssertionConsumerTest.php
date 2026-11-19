@@ -74,7 +74,7 @@ class EngineBlock_Test_Corto_Module_Service_AssertionConsumerTest extends TestCa
             ->thenReturn($this->requestMock);
 
         Phake::when($this->proxyServerMock)
-            ->checkResponseSignatureMethods(Phake::anyParameters())
+            ->logResponseSignatureMethods(Phake::anyParameters())
             ->thenReturn(null);
 
         Phake::when($this->proxyServerMock)

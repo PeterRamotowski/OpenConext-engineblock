@@ -134,7 +134,7 @@ class RedirectSignatureVerifierTest extends TestCase
     #[Test]
     public function aForbiddenSignatureMethodIsRejected(): void
     {
-        $verifier = new RedirectSignatureVerifier(new NullLogger(), [self::RSA_SHA384]);
+        $verifier = new RedirectSignatureVerifier(new NullLogger(), new SignatureAlgorithmPolicy([self::RSA_SHA384]));
 
         self::assertFalse($verifier->supports(self::RSA_SHA384));
         $this->expectException(UnsupportedSignatureAlgorithmException::class);
@@ -158,7 +158,7 @@ class RedirectSignatureVerifierTest extends TestCase
 
     private function verifier(): RedirectSignatureVerifier
     {
-        return new RedirectSignatureVerifier(new NullLogger());
+        return new RedirectSignatureVerifier(new NullLogger(), new SignatureAlgorithmPolicy([]));
     }
 
     private function signedQuery(string $algorithm, string $signer, ?string $relayState = null): ReceivedAuthnRequestQueryString

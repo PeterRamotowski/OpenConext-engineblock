@@ -111,7 +111,7 @@ class EngineBlock_Corto_Module_Service_AssertionConsumer implements EngineBlock_
             return;
         }
 
-        $this->_server->checkResponseSignatureMethods($receivedResponse);
+        $this->_server->logResponseSignatureMethods($receivedResponse);
 
         if ($receivedRequest->isDebugRequest()) {
             $sp = $this->getEngineSpRole($this->_server);

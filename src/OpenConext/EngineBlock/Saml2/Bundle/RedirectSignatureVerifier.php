@@ -32,20 +32,15 @@ use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
  */
 final class RedirectSignatureVerifier
 {
-    /**
-     * @param list<string> $forbiddenAlgorithms EngineBlock's forbidden_signature_methods
-     */
     public function __construct(
         private readonly LoggerInterface $logger,
-        private readonly array $forbiddenAlgorithms = [],
+        private readonly SignatureAlgorithmPolicy $signaturePolicy,
     ) {
     }
 
     public function supports(string $algorithm): bool
     {
-        return SignatureAlgorithmPolicy::isRsaSha2($algorithm)
-            && !in_array($algorithm, $this->forbiddenAlgorithms, true)
-            && !SignatureAlgorithmPolicy::isBlacklisted($algorithm);
+        return $this->signaturePolicy->supportsRedirectVerification($algorithm);
     }
 
     /**

@@ -82,7 +82,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         $serviceEntityId = $this->determineRemoteSpEntityId();
         $expectedDestination = $this->_server->getUrl('stepupAssertionConsumerService');
 
-        $checkResponseSignature = true;
+        $logResponseSignature = true;
         try {
             $receivedResponse = $this->_server->getBindingsModule()->receiveResponse($serviceEntityId, $expectedDestination);
             $receivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
@@ -107,7 +107,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             $receivedResponse = $e->getResponse();
             $receivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
 
-            $checkResponseSignature = false; // error responses from gateway are not signed
+            $logResponseSignature = false; // error responses from gateway are not signed
 
             // Update the AuthnContextClassRef to LoA 1
             $mappedLoa = $this->_stepupGatewayCallOutHelper->getStepupLoa1();
@@ -117,8 +117,8 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
 
         $application->getDiContainerRuntime()->correlationIdService->resolve($receivedRequest->getId());
 
-        if ($checkResponseSignature) {
-            $this->_server->checkResponseSignatureMethods($receivedResponse);
+        if ($logResponseSignature) {
+            $this->_server->logResponseSignatureMethods($receivedResponse);
         }
 
         // Verify the SP requester chain.
@@ -138,7 +138,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         $originalReceivedResponse = $processStep->getResponse();
 
         // Only non-error responses will have a NameID in them
-        if ($checkResponseSignature) {
+        if ($logResponseSignature) {
             $this->verifyReceivedNameID($originalReceivedResponse, $receivedResponse);
         }
 

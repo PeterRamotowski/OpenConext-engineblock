@@ -27,8 +27,6 @@ use Dom\Element;
 use Dom\XPath;
 use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
 use OpenConext\EngineBlock\Saml2\Bundle\PrivateKeyAgentFailure;
-use OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier;
-use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
 use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
 use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
 use OpenConext\EngineBlock\Saml2\Message\MessageRebuilder;
@@ -43,7 +41,6 @@ use SimpleSAML\SAML2\XML\saml\Assertion as V7Assertion;
 use SimpleSAML\SAML2\XML\samlp\AbstractMessage as V7Message;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as V7AuthnRequest;
 use SimpleSAML\SAML2\XML\samlp\Response as V7Response;
-use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
@@ -240,11 +237,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
                 $issuer,
                 $signatureMethod
             ));
-
-            $forbiddenSignatureMethods = $this->_server->getConfig('forbiddenSignatureMethods');
-            if (in_array($signatureMethod, $forbiddenSignatureMethods)) {
-                throw new EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException($signatureMethod);
-            }
         }
 
         // Make sure the request from the sp has an Issuer
@@ -412,9 +404,9 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
             );
         }
 
-        if (!in_array($signatureMethod, RSA::getSupportedAlgorithms(), true)
-            || SignatureAlgorithmPolicy::isBlacklisted($signatureMethod)
-        ) {
+        $signaturePolicy = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()
+            ->getSamlSignatureAlgorithmPolicy();
+        if (!$signaturePolicy->supportsXmlVerification($signatureMethod)) {
             throw new EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException($signatureMethod);
         }
 
@@ -670,8 +662,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         // Only the verified envelope and the validated Assertion are trusted from here on.
         $envelope = $verifiedResponse->getVerifiedEnvelope();
         $assertion = $verifiedResponse->getAssertion();
-        $this->assertResponseSignatureMethodIsAllowed($verifiedResponse->getResponseSignatureMethod());
-        $this->assertResponseSignatureMethodIsAllowed($verifiedResponse->getAssertionSignatureMethod());
         $inResponseTo = $this->assertVerifiedCorrelation(
             $envelope ?? $sspResponse,
             $assertion,
@@ -729,9 +719,10 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         $trustedResponse = $sspResponse;
         if ($sspResponse->isSigned()) {
-            $this->assertResponseSignatureMethodIsAllowed($this->signatureAlgorithm($sspResponse));
             try {
-                $trustedResponse = (new ResponseEnvelopeVerifier($this->_logger))->verify($sspResponse, $identityProvider);
+                $trustedResponse = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()
+                    ->getSamlVerifiedResponseProcessor()
+                    ->verifyResponseEnvelope($sspResponse, $identityProvider);
             } catch (Exception $exception) {
                 throw $this->responseProcessingFailure($exception);
             }
@@ -756,7 +747,10 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
         $this->_server->consumePendingRequest($inResponseTo, $identityProvider->getEntityId(), $expectedDestination);
 
         $response = new EngineBlock_Saml2_ResponseAnnotationDecorator($trustedResponse, $relayState);
-        $response->setVerifiedSignatureMethods($this->signatureAlgorithm($sspResponse), null);
+        $response->setVerifiedSignatureMethods(
+            $sspResponse->getSignature()?->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
+            null
+        );
 
         $status = $response->getStatus();
         if (isset($status['SubCode']) && $status['SubCode'] === Constants::STATUS_NO_PASSIVE) {
@@ -892,18 +886,6 @@ class EngineBlock_Corto_Module_Bindings extends EngineBlock_Corto_Module_Abstrac
 
         // Passthrough, should be handled at a different level protecting against oracle attacks
         return $failure;
-    }
-
-    private function signatureAlgorithm(V7Response|V7Assertion $element): ?string
-    {
-        return $element->getSignature()?->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue();
-    }
-
-    private function assertResponseSignatureMethodIsAllowed(?string $algorithm): void
-    {
-        if ($algorithm !== null && in_array($algorithm, $this->_server->getConfig('forbiddenSignatureMethods'), true)) {
-            throw new EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException($algorithm);
-        }
     }
 
     protected function _receiveMessageFromInternalBinding($key)

@@ -144,15 +144,11 @@ class VerifiedResponseProcessorTest extends TestCase
     }
 
     #[Test]
-    public function anEnvelopeSignedByAnUnconfiguredKeyIsRejectedBeforeProcessing(): void
+    public function anEnvelopeSignedByAnUnconfiguredKeyIsRejected(): void
     {
-        $responseProcessor = $this->createMock(ResponseProcessor::class);
-        $responseProcessor->expects(self::never())->method('process');
-        $processor = new VerifiedResponseProcessor($responseProcessor, new ResponseEnvelopeVerifier(new NullLogger()));
-
         $this->expectException(InvalidSignatureException::class);
 
-        $processor->process(
+        $this->processor()->process(
             $this->serviceProvider,
             $this->identityProvider(),
             self::ACS,
@@ -193,7 +189,7 @@ class VerifiedResponseProcessorTest extends TestCase
 
         $this->expectException(SignatureValidationFailedException::class);
 
-        (new ResponseEnvelopeVerifier(new NullLogger()))->verify(
+        $this->processor()->verifyResponseEnvelope(
             $this->parse($document->saveXML($document->documentElement)),
             $this->identityProvider()
         );
@@ -217,15 +213,13 @@ class VerifiedResponseProcessorTest extends TestCase
     {
         $encrypted = $this->encryptedAssertion($this->signedAssertion($this->assertion()));
         $response = $this->signedResponse($this->response('_encrypted', $encrypted), 'idp', self::RSA_SHA512);
-        $decrypter = new PolicyCheckingAssertionDecrypter(new LocalAssertionDecrypter(new PrivateKeyLoader()));
-        $processor = $this->processor($decrypter);
+        $processor = $this->processor();
 
         $result = $processor->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
 
         self::assertSame(self::RSA_SHA512, $result->getResponseSignatureMethod());
         self::assertSame(self::RSA_SHA256, $result->getAssertionSignatureMethod());
         self::assertSame('john-doe', $result->getAssertion()->getSubject()->getIdentifier()->getContent()->getValue());
-        self::assertNull($decrypter->getSignatureMethod());
 
         $next = $this->signedResponse($this->response('_next', $this->assertion()), 'idp');
         $nextResult = $processor->process($this->serviceProvider, $this->identityProvider(), self::ACS, $next);
@@ -237,18 +231,10 @@ class VerifiedResponseProcessorTest extends TestCase
     {
         $encrypted = $this->encryptedAssertion($this->signedAssertion($this->assertion()));
         $response = $this->signedResponse($this->response('_forbidden-inner', $encrypted), 'idp', self::RSA_SHA512);
-        $decrypter = new PolicyCheckingAssertionDecrypter(
-            new LocalAssertionDecrypter(new PrivateKeyLoader()),
-            [self::RSA_SHA256]
-        );
         $this->expectException(UnsupportedSignatureAlgorithmException::class);
 
-        try {
-            $this->processor($decrypter, [self::RSA_SHA256])
-                ->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
-        } finally {
-            self::assertNull($decrypter->getSignatureMethod());
-        }
+        $this->processor([self::RSA_SHA256])
+            ->process($this->serviceProvider, $this->identityProvider(), self::ACS, $response);
     }
 
     private function encryptedAssertion(string $assertion): string
@@ -274,15 +260,19 @@ class VerifiedResponseProcessorTest extends TestCase
         return $encrypted->ownerDocument->saveXML($encrypted);
     }
 
-    private function processor(
-        ?PolicyCheckingAssertionDecrypter $decrypter = null,
-        array $forbiddenAlgorithms = []
-    ): VerifiedResponseProcessor {
+    private function processor(array $forbiddenAlgorithms = []): VerifiedResponseProcessor
+    {
+        $keyLoader = new KeyLoader();
+        $privateKeyLoader = new PrivateKeyLoader();
+        $logger = new NullLogger();
+        $policy = new SignatureAlgorithmPolicy($forbiddenAlgorithms);
+        $decrypter = new PolicyCheckingAssertionDecrypter(new LocalAssertionDecrypter($privateKeyLoader), $policy);
+
         return new VerifiedResponseProcessor(
-            new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), new NullLogger(), assertionDecrypter: $decrypter),
-            new ResponseEnvelopeVerifier(new NullLogger()),
+            new ResponseProcessor($keyLoader, $privateKeyLoader, $logger, assertionDecrypter: $decrypter),
+            new ResponseEnvelopeVerifier($keyLoader, $logger, $policy),
             $decrypter,
-            $forbiddenAlgorithms
+            $policy
         );
     }
 

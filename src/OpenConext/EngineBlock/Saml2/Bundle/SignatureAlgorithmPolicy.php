@@ -18,13 +18,11 @@
 
 namespace OpenConext\EngineBlock\Saml2\Bundle;
 
+use OpenConext\EngineBlock\Saml2\Bundle\Exception\UnsupportedSignatureAlgorithmException;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
-use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as C;
-use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
-use SimpleSAML\XMLSecurity\Key\PublicKey;
 
 /**
  * Signature algorithm policy shared by the EngineBlock adapters around the Stepup SAML bundle.
@@ -39,6 +37,38 @@ final class SignatureAlgorithmPolicy
         C::SIG_RSA_SHA384,
         C::SIG_RSA_SHA512,
     ];
+
+    /** @param list<string> $forbiddenAlgorithms */
+    public function __construct(private readonly array $forbiddenAlgorithms)
+    {
+    }
+
+    public function assertAllowed(?string $algorithm): void
+    {
+        if ($algorithm !== null && $this->isForbidden($algorithm)) {
+            throw UnsupportedSignatureAlgorithmException::forVerification($algorithm);
+        }
+    }
+
+    public function supportsXmlVerification(string $algorithm): bool
+    {
+        return in_array($algorithm, RSA::getSupportedAlgorithms(), true) && $this->isAllowed($algorithm);
+    }
+
+    public function supportsRedirectVerification(string $algorithm): bool
+    {
+        return self::isRsaSha2($algorithm) && $this->isAllowed($algorithm);
+    }
+
+    private function isAllowed(string $algorithm): bool
+    {
+        return !$this->isForbidden($algorithm) && !self::isBlacklisted($algorithm);
+    }
+
+    private function isForbidden(string $algorithm): bool
+    {
+        return in_array($algorithm, $this->forbiddenAlgorithms, true);
+    }
 
     public static function factory(): SignatureAlgorithmFactory
     {
@@ -64,19 +94,5 @@ final class SignatureAlgorithmPolicy
     public static function isRsaSha2(string $algorithm): bool
     {
         return in_array($algorithm, self::RSA_SHA2, true);
-    }
-
-    /**
-     * The policy the bundle applies to XML signatures: any RSA algorithm that is not blacklisted.
-     *
-     * @throws UnsupportedAlgorithmException
-     */
-    public static function forXmlVerification(string $algorithm, PublicKey $key): SignatureAlgorithmInterface
-    {
-        if (!in_array($algorithm, RSA::getSupportedAlgorithms(), true)) {
-            throw new UnsupportedAlgorithmException(sprintf('Unsupported RSA signature algorithm "%s"', $algorithm));
-        }
-
-        return self::factory()->getAlgorithm($algorithm, $key);
     }
 }
