@@ -635,6 +635,25 @@ class EngineBlock_Test_Corto_Module_BindingsTest extends TestCase
         $this->bindings->receiveRequest();
     }
 
+    public function testAuthnRequestWithARelativeRequesterIdIsRejected(): void
+    {
+        $this->useServiceProvider();
+        $requestXml = str_replace(
+            '</samlp:AuthnRequest>',
+            '<samlp:Scoping><samlp:RequesterID>unknown-sp</samlp:RequesterID></samlp:Scoping></samlp:AuthnRequest>',
+            $this->authnRequestXml()
+        );
+        $this->postMessage('SAMLRequest', $requestXml);
+
+        try {
+            $this->bindings->receiveRequest();
+            $this->fail('Expected the request to be rejected');
+        } catch (EngineBlock_Corto_Module_Bindings_UnableToReceiveMessageException $exception) {
+            $this->assertStringContainsString('unknown-sp', $exception->getMessage());
+            Phake::verify($this->proxyServer, Phake::never())->setReceivedRequest(Phake::anyParameters());
+        }
+    }
+
     #[DataProvider('lookalikeDestinationProvider')]
     public function testRequestDestinationMustExactlyMatchTheSingleSignOnLocation(string $suffix, bool $replaceScheme)
     {

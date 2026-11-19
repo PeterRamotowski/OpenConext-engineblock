@@ -27,6 +27,8 @@ use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProviderFactory;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\AuthnRequest;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\XML\DOMDocumentFactory;
 
 /**
  * @package OpenConext\EngineBlockFunctionalTestingBundle\Features\Context
@@ -410,6 +412,21 @@ class MockSpContext extends AbstractSubContext
 
         $sp->getAuthnRequest()->setRequesterID([$requesterEntityId]);
 
+        $this->mockSpRegistry->save();
+    }
+
+    /**
+     * @Given /^SP "([^"]*)" sends a malformed RequesterID "([^"]*)"$/
+     */
+    public function spSendsMalformedRequesterId(string $spName, string $requesterId): void
+    {
+        $request = $this->mockSpRegistry->get($spName)->getAuthnRequest();
+        $request->setRequesterID(['urn:example:requester-id']);
+
+        // The typed request cannot represent this value, so override the mock's outgoing XML.
+        $document = DOMDocumentFactory::fromString($request->toXml());
+        $document->getElementsByTagNameNS(Constants::NS_SAMLP, 'RequesterID')->item(0)->textContent = $requesterId;
+        $request->setXml($document->saveXml());
         $this->mockSpRegistry->save();
     }
 
