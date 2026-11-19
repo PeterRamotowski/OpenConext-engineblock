@@ -18,6 +18,7 @@
 
 use Mockery as m;
 use OpenConext\EngineBlock\Metadata\AttributeReleasePolicy;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
@@ -66,5 +67,27 @@ class EngineBlock_Arp_NameIdSubstituteResolverTest extends TestCase
         $result = $this->resolver->findNameIdSubstitute($arp, $responseAttributes);
 
         $this->assertNull($result);
+    }
+
+    #[DataProvider('emptySubstitutes')]
+    public function testUnusableSubstituteIsIgnored(array $values): void
+    {
+        $arp = m::mock(AttributeReleasePolicy::class);
+        $arp->shouldReceive('findNameIdSubstitute')->andReturn('email');
+        $this->loggerMock->shouldReceive('warning')
+            ->with('Ignoring a NameID substitute without a non-empty string value', ['attribute' => 'email'])
+            ->once();
+
+        $this->assertNull($this->resolver->findNameIdSubstitute($arp, ['email' => $values]));
+    }
+
+    public static function emptySubstitutes(): array
+    {
+        return [
+            'no values' => [[]],
+            'empty string' => [['']],
+            'only whitespace' => [[" \t"]],
+            'non-string value' => [[false]],
+        ];
     }
 }
