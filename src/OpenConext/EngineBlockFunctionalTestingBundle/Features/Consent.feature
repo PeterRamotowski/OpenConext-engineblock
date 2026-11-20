@@ -80,13 +80,13 @@ Feature:
      And the response should contain "Motivation for affiliation"
      And the response should contain "Motivation for orcid"
 
-  Scenario: The user can reload the consent screen without error
+  Scenario: Reloading consent does not replay the IdP response
     Given I log in at "Dummy-SP"
      And I pass through EngineBlock
      And I pass through the IdP
     Then the response should contain "Proceed to Dummy-SP"
     When I reload the page
-    Then the response should contain "Proceed to Dummy-SP"
+    Then the url should match "/authentication/feedback/session-lost"
 
   Scenario: The user is presented with an institution provided consent text
     Given I log in at "Dummy-SP"

@@ -65,3 +65,4 @@ services:
         public: true
         arguments:
             - '@request_stack'
+            - '%saml_request_lifetime_seconds%'

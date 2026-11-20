@@ -7,7 +7,7 @@ echo -e "\nContainer lint\n"
 bin/console lint:container --env=ci
 
 echo -e "\nYAML lint\n"
-bin/console lint:yaml config/
+bin/console lint:yaml --parse-tags config/
 
 echo -e "\nTwig lint\n"
 bin/console lint:twig theme/

@@ -20,7 +20,7 @@ namespace OpenConext\EngineBlockBundle\Twig\Extensions\Extension;
 
 use EngineBlock_Attributes_Metadata;
 use OpenConext\Value\Saml\NameIdFormat;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\NameID;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Attribute\AsTwigFunction;
 
@@ -131,7 +131,7 @@ class Metadata
         );
 
         if ($nameID && ($nameID->getFormat() == NameIdFormat::PERSISTENT_IDENTIFIER || $nameID->getFormat() == NameIdFormat::UNSPECIFIED)) {
-            $groupedAttributes['engineblock']['name_id'] = $nameID->getValue();
+            $groupedAttributes['engineblock']['name_id'] = $nameID->getContent()->getValue();
         }
 
         foreach ($attributes as $attributeName => $attributeValue) {

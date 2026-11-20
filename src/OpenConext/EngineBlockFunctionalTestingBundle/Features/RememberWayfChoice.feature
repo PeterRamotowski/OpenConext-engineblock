@@ -89,3 +89,11 @@ Feature: Per-SP remembered WAYF choice
     Then the response should contain 'rememberedidps'
     When I press "remove_rememberedidps"
     Then the "rememberedidps" cookie should not be set
+
+  Scenario: Removing all cookies clears an existing session
+    When I log in at "Remembering-SP"
+    Then the session cookie should be set
+    When I go to Engineblock URL "/authentication/idp/remove-cookies"
+     And I press "remove_all"
+    Then the response status code should be 200
+     And the session cookie should not be set

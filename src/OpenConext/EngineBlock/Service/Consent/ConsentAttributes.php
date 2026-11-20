@@ -18,7 +18,7 @@
 
 namespace OpenConext\EngineBlock\Service\Consent;
 
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\NameID;
 use function array_filter;
 use function array_keys;
 use function array_values;
@@ -91,7 +91,7 @@ final class ConsentAttributes
     {
         array_walk_recursive($attributes, function (&$value) {
             if ($value instanceof NameID) {
-                $value = ['value' => $value->getValue(), 'Format' => $value->getFormat()];
+                $value = ['value' => $value->getContent()->getValue(), 'Format' => $value->getFormat()?->getValue()];
             }
         });
         return $attributes;

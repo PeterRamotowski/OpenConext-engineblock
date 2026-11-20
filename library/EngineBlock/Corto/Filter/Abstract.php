@@ -23,7 +23,6 @@ use EngineBlock_Corto_Filter_Command_ResponseAttributeValueTypesModificationInte
 use EngineBlock_Corto_Filter_Command_ResponseModificationInterface as ResponseModificationInterface;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
-use SAML2\AuthnRequest;
 
 abstract class EngineBlock_Corto_Filter_Abstract
 {
@@ -61,9 +60,9 @@ abstract class EngineBlock_Corto_Filter_Abstract
         IdentityProvider $identityProvider
     )
     {
-        /** @var AuthnRequest $request */
         // Note that IDs are only unique per SP... we hope...
-        $responseNameId = $response->getAssertion()->getNameId();
+        $responseNameId = $response->getNameId();
+        $responseNameIdValue = $responseNameId?->getContent()->getValue();
 
         $sessionKey = $serviceProvider->entityId . '>' . $request->getId();
         if (isset($_SESSION[$sessionKey]['collabPersonId'])) {
@@ -72,8 +71,8 @@ abstract class EngineBlock_Corto_Filter_Abstract
         else if ($response->getCollabPersonId()) {
             $collabPersonId = $response->getCollabPersonId();
         }
-        else if (isset($responseNameId) && $responseNameId->getValue()) {
-            $collabPersonId = $responseNameId->getValue();
+        else if ($responseNameIdValue) {
+            $collabPersonId = $responseNameIdValue;
         }
         else {
             $collabPersonId = null;
@@ -109,7 +108,7 @@ abstract class EngineBlock_Corto_Filter_Abstract
                 $responseAttributes = $command->getResponseAttributes();
             }
             if ($command instanceof ResponseAttributeValueTypesModificationInterface) {
-                $response->getAssertion()->setAttributesValueTypes($command->getResponseAttributeValueTypes());
+                $response->setAttributesValueTypes($command->getResponseAttributeValueTypes());
             }
             if ($command instanceof ResponseAttributeSourcesModificationInterface) {
                 $_SESSION[$request->getId()]['attribute_sources'] = $command->getResponseAttributeSources();

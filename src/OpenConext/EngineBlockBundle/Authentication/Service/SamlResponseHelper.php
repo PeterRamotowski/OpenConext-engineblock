@@ -20,10 +20,13 @@ namespace OpenConext\EngineBlockBundle\Authentication\Service;
 
 use EngineBlock_Saml2_ResponseAnnotationDecorator;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockBundle\Exception\RuntimeException;
-use SAML2\Constants;
-use SAML2\Response as SAMLResponse;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\samlp\Response as SAMLResponse;
+use SimpleSAML\XMLSchema\Type\IDValue;
+use SimpleSAML\XMLSchema\Type\NCNameValue;
 
 class SamlResponseHelper
 {
@@ -44,28 +47,33 @@ class SamlResponseHelper
         string $message,
         EngineBlock_Saml2_ResponseAnnotationDecorator $originalResponse
     ): string {
-        $response = new SAMLResponse();
-        $response->setDestination($this->getAcu($spEntityId));
-        $response->setIssuer($originalResponse->getIssuer());
-        $response->setIssueInstant(time());
-        $response->setInResponseTo($originalRequestId);
+        $destination = $this->getAcu($spEntityId);
         $status = $originalResponse->getStatus();
-        $response->setStatus([
-            'Code' => array_key_exists('Code', $status) ? $status['Code'] : Constants::STATUS_RESPONDER,
-            'SubCode' => array_key_exists('SubCode', $status) ? $status['SubCode'] : Constants::STATUS_AUTHN_FAILED,
-            'Message' => $message
-        ]);
+        $issuer = $originalResponse->getIssuer();
 
         // Copy of behavior found in: https://github.com/OpenConext/OpenConext-engineblock/blob/8aea9cdaa8162d92b391c35c7c66ce6802273f72/library/EngineBlock/Corto/ProxyServer.php#L582-L598
         $serviceProvider = $this->metaDataRepository->findServiceProviderByEntityId($spEntityId);
-        $isTransparant = $serviceProvider->getCoins()->isTransparentIssuer();
-        if ($isTransparant) {
-            $issuer = new Issuer();
-            $issuer->setValue($originalResponse->getOriginalIssuer());
-            $response->setIssuer($issuer);
+        if ($serviceProvider->getCoins()->isTransparentIssuer()) {
+            $originalIssuer = $originalResponse->getOriginalIssuer();
+            if (is_string($originalIssuer) && $originalIssuer !== '') {
+                $issuer = Saml2Value::issuer($originalIssuer);
+            }
         }
 
-        return base64_encode($response->toUnsignedXML()->ownerDocument->saveXML());
+        $response = new SAMLResponse(
+            id: IDValue::fromString('_' . bin2hex(random_bytes(20))),
+            status: EngineBlock_Saml2_ResponseAnnotationDecorator::createStatus([
+                'Code' => array_key_exists('Code', $status) ? $status['Code'] : Constants::STATUS_RESPONDER,
+                'SubCode' => array_key_exists('SubCode', $status) ? $status['SubCode'] : Constants::STATUS_AUTHN_FAILED,
+                'Message' => $message,
+            ]),
+            issueInstant: Saml2Value::dateTime(time()),
+            issuer: $issuer,
+            inResponseTo: NCNameValue::fromString($originalRequestId),
+            destination: SAMLAnyURIValue::fromString($destination),
+        );
+
+        return base64_encode(Saml2Value::toXmlString($response->toXML()));
     }
 
     public function getAcu(string $spEntityId)

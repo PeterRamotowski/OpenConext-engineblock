@@ -35,7 +35,7 @@ class X509CertificateFactory
      */
     public function fromFile($filePath)
     {
-        $pemString = file_get_contents($filePath);
+        $pemString = @file_get_contents($filePath);
 
         if (!$pemString) {
             throw new RuntimeException(sprintf('Unable to read file at path "%s".', $filePath));
@@ -46,7 +46,7 @@ class X509CertificateFactory
         } catch (Exception $e) {
             throw new RuntimeException(sprintf('File at "%s" does not contain a valid certificate.', $filePath), 0, $e);
         }
-        return $certificate;
+        return new X509Certificate($certificate->toResource(), $filePath);
     }
 
     /**

@@ -31,7 +31,7 @@ use OpenConext\EngineBlock\Metadata\X509\X509Certificate;
 use OpenConext\EngineBlockBundle\Doctrine\Type\SerializedArrayType;
 use OpenConext\EngineBlockBundle\Doctrine\Type\SerializedObjectType;
 use RuntimeException;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 /**
  * Abstract base class for configuration entities.

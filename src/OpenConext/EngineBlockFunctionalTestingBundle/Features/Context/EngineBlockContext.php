@@ -23,6 +23,7 @@ use Behat\Mink\Exception\ExpectationException;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
+use EngineBlock_ApplicationSingleton;
 use OpenConext\EngineBlock\Service\Wayf\RememberedIdpCookie;
 use OpenConext\EngineBlockBundle\Sbs\Msg;
 use OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\DataStore\AbstractDataStore;
@@ -35,11 +36,8 @@ use OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\ServiceRegistryFixtur
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\EntityRegistry;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockIdentityProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
-use RobRichards\XMLSecLibs\XMLSecEnc;
-use RobRichards\XMLSecLibs\XMLSecurityDSig;
 use RuntimeException;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\BrowserKit\Cookie;
 
 /**
@@ -683,18 +681,11 @@ class EngineBlockContext extends AbstractSubContext
      */
     public function theReceivedAuthnRequestShouldNotMatchXpath($xpath)
     {
-        $session = $this->getMinkContext()->getSession();
-        try {
-            $this->theAuthnRequestToSubmitShouldMatchXpath($xpath);
-            throw new RuntimeException('The xpath was found in the AuthnRequest, it should not');
-        } catch (ExpectationException $e) {
-            if (false === preg_match('/The xpath "(w+)" did not result in at least one match./', $e->getMessage())) {
-                throw new ExpectationException(
-                    'Unexepected match on the xpath that should NOT match the AuthnRequest xml',
-                    $session,
-                    $e
-                );
-            }
+        if ($this->countAuthnRequestXpathMatches($xpath) > 0) {
+            throw new ExpectationException(
+                sprintf('The xpath "%s" unexpectedly matched the AuthnRequest', $xpath),
+                $this->getMinkContext()->getSession()
+            );
         }
     }
 
@@ -711,6 +702,16 @@ class EngineBlockContext extends AbstractSubContext
      */
     public function theAuthnRequestToSubmitShouldMatchXpath($xpath)
     {
+        if ($this->countAuthnRequestXpathMatches($xpath) === 0) {
+            throw new ExpectationException(
+                sprintf('The xpath "%s" did not result in at least one match.', $xpath),
+                $this->getMinkContext()->getSession()
+            );
+        }
+    }
+
+    private function countAuthnRequestXpathMatches(string $xpath): int
+    {
         $session = $this->getMinkContext()->getSession();
         $mink    = $session->getPage();
         $authnRequestElement = $mink->find('css', 'input[name="authnRequestXml"]');
@@ -724,16 +725,21 @@ class EngineBlockContext extends AbstractSubContext
          * @see MinkContext::theResponseShouldMatchXpath()
          */
         $authnRequest = new DOMDocument();
-        $authnRequest->loadXML($authnRequestXml);
+        if (!$authnRequest->loadXML($authnRequestXml)) {
+            throw new ExpectationException('The AuthnRequest is not valid XML', $session);
+        }
 
         $xpathObject = new DOMXPath($authnRequest);
         $xpathObject->registerNamespace('gssp', 'urn:mace:surf.nl:stepup:gssp-extensions');
+        $xpathObject->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObject->registerNamespace('samlp', Constants::NS_SAMLP);
         $nodeList = $xpathObject->query($xpath);
 
-        if (!$nodeList || $nodeList->length === 0) {
-            $message = sprintf('The xpath "%s" did not result in at least one match.', $xpath);
-            throw new ExpectationException($message, $session);
+        if ($nodeList === false) {
+            throw new ExpectationException(sprintf('Invalid xpath "%s"', $xpath), $session);
         }
+
+        return $nodeList->length;
     }
 
     /**
@@ -792,6 +798,23 @@ class EngineBlockContext extends AbstractSubContext
             throw new ExpectationException(
                 'The rememberedidps cookie should not be set, but it is',
                 $this->getMinkContext()->getSession()->getDriver()
+            );
+        }
+    }
+
+    /**
+     * @Then /^the session cookie should (be|not be) set$/
+     */
+    public function theSessionCookieShouldBeSet(string $expectation): void
+    {
+        $cookieName = EngineBlock_ApplicationSingleton::getInstance()->getDiContainer()->getSessionCookieName();
+        $session = $this->getMinkContext()->getSession();
+        $isSet = $session->getCookie($cookieName) !== null;
+
+        if ($isSet !== ($expectation === 'be')) {
+            throw new ExpectationException(
+                sprintf('The session cookie "%s" should %s set', $cookieName, $expectation),
+                $session->getDriver()
             );
         }
     }
@@ -1034,7 +1057,8 @@ class EngineBlockContext extends AbstractSubContext
 
         // Convert response to  DOMDocument
         $samlResponseXml = base64_decode($samlResponse);
-        $xmlDom = DOMDocumentFactory::fromString($samlResponseXml);
+        $xmlDom = new DOMDocument();
+        $xmlDom->loadXML($samlResponseXml);
 
         // Init XPath and register namespaces
         $xpath = new DOMXPath($xmlDom);
@@ -1042,8 +1066,8 @@ class EngineBlockContext extends AbstractSubContext
         $xpath->registerNamespace('saml_protocol', Constants::NS_SAMLP);
         $xpath->registerNamespace('saml_assertion', Constants::NS_SAML);
         $xpath->registerNamespace('saml_metadata', Constants::NS_MD);
-        $xpath->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpath->registerNamespace('xenc', XMLSecEnc::XMLENCNS);
+        $xpath->registerNamespace('ds', Constants::NS_XDSIG);
+        $xpath->registerNamespace('xenc', Constants::NS_XENC);
 
         // Strip response/signature
         $nodes = $xpath->query("/saml_protocol:Response/ds:Signature");

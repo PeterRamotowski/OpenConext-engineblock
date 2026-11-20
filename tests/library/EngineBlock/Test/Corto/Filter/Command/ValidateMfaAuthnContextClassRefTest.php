@@ -27,9 +27,6 @@ use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MfaEntityCollection;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response as SAMLResponse;
 
 class EngineBlock_Test_Corto_Filter_Command_ValidateMfaAuthnContextClassRefTest extends TestCase
 {
@@ -56,13 +53,7 @@ class EngineBlock_Test_Corto_Filter_Command_ValidateMfaAuthnContextClassRefTest 
     {
         $this->handler = new TestHandler();
         $this->logger  = new Logger('Test', array($this->handler));
-        $assertion = new Assertion();
-
-        $request = new AuthnRequest();
-        $response = new SAMLResponse();
-        $response->setAssertions(array($assertion));
-
-        $this->request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($request);
+        $this->request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
 
         $this->sp = new ServiceProvider('Test SP');
         $this->server = m::mock(EngineBlock_Corto_ProxyServer::class);
@@ -217,7 +208,7 @@ class EngineBlock_Test_Corto_Filter_Command_ValidateMfaAuthnContextClassRefTest 
 
     public function testMatchedTransparentAuthnContextClassRefShouldPass()
     {
-        $response = $this->createTestResponse('foobar.example.com');
+        $response = $this->createTestResponse('https://foobar.example.com');
 
         $identityProvider = $this->createConfiguredSpIdpCombination('Test IdP', "Test SP", "transparent_authn_context");
 
@@ -257,19 +248,14 @@ class EngineBlock_Test_Corto_Filter_Command_ValidateMfaAuthnContextClassRefTest 
      */
     private function createTestResponse($authnContextClassRef, $authMethodsReferenceValues = [])
     {
-        $assertion = new Assertion();
-        $assertion->setAuthnContextClassRef($authnContextClassRef);
-
+        $attributes = [];
         if (!empty($authMethodsReferenceValues)) {
-            $assertion->setAttributes([
-                'http://schemas.microsoft.com/claims/authnmethodsreferences' => $authMethodsReferenceValues,
-            ]);
+            $attributes['http://schemas.microsoft.com/claims/authnmethodsreferences'] = $authMethodsReferenceValues;
         }
 
-        $response = new SAMLResponse();
-        $response->setAssertions(array($assertion));
-
-        return new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse([
+            'assertion' => ['classRef' => $authnContextClassRef, 'attributes' => $attributes],
+        ]);
     }
 
     /**

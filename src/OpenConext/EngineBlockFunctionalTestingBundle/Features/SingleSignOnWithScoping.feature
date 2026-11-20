@@ -67,7 +67,7 @@ Feature:
     Then I should see "IDP4"
 
   Scenario: Unknown RequesterID does not influence WAYF
-    Given SP "SP" is authenticating and uses RequesterID "unknown-SP"
+    Given SP "SP" is authenticating and uses RequesterID "urn:example:unknown-sp"
     When I log in at "SP"
     Then I should see "IDP1"
     Then I should see "IDP2"
@@ -81,6 +81,12 @@ Feature:
     Then I should see "IDP2"
     Then I should see "IDP3"
     Then I should see "IDP4"
+
+  Scenario: A malformed RequesterID is rejected
+    Given SP "SP" sends a malformed RequesterID "unknown-sp"
+    When I log in at "SP"
+    Then the url should match "/authentication/feedback/unable-to-receive-message"
+     And I should see "No message received"
 
   Scenario: RequesterID of remote SP which has fewer IDPs limits WAYF
     Given SP "SP" is authenticating for SP "remoteSP"

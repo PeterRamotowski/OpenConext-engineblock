@@ -20,6 +20,11 @@ use Doctrine\ORM\EntityManager;
 use OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory;
 use OpenConext\EngineBlock\Metadata\LoaRepository;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
+use OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier;
+use OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy;
+use OpenConext\EngineBlock\Saml2\Bundle\SignerFactory;
+use OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder;
+use OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor;
 use OpenConext\EngineBlock\Service\MfaHelperInterface;
 use OpenConext\EngineBlock\Service\ReleaseAsEnforcer;
 use OpenConext\EngineBlock\Service\TimeProvider\TimeProviderInterface;
@@ -430,14 +435,6 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     }
 
     /**
-     * @return array
-     */
-    public function getForbiddenSignatureMethods()
-    {
-        return (array) $this->container->getParameter('forbidden_signature_methods');
-    }
-
-    /**
      * @return AllowedSchemeValidator
      */
     public function getAcsLocationSchemeValidator()
@@ -485,6 +482,11 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     public function getMfaHelper(): MfaHelperInterface
     {
         return $this->container->get(\OpenConext\EngineBlock\Service\MfaHelper::class);
+    }
+
+    public function getSessionCookieName(): string
+    {
+        return (string) $this->container->getParameter('session_cookie_name');
     }
 
     /**
@@ -609,5 +611,30 @@ class EngineBlock_Application_DiContainer extends \Pimple\Container
     public function getAuthnRequestSessionRepository(): EngineBlock_Saml2_AuthnRequestSessionRepository
     {
         return $this->container->get(EngineBlock_Saml2_AuthnRequestSessionRepository::class);
+    }
+
+    public function getSamlSignatureAlgorithmPolicy(): SignatureAlgorithmPolicy
+    {
+        return $this->container->get(SignatureAlgorithmPolicy::class);
+    }
+
+    public function getSamlRedirectSignatureVerifier(): RedirectSignatureVerifier
+    {
+        return $this->container->get(RedirectSignatureVerifier::class);
+    }
+
+    public function getSamlVerifiedResponseProcessor(): VerifiedResponseProcessor
+    {
+        return $this->container->get(VerifiedResponseProcessor::class);
+    }
+
+    public function getSamlSignerFactory(): SignerFactory
+    {
+        return $this->container->get(SignerFactory::class);
+    }
+
+    public function getSamlUnsignedRedirectEncoder(): UnsignedRedirectEncoder
+    {
+        return $this->container->get(UnsignedRedirectEncoder::class);
     }
 }

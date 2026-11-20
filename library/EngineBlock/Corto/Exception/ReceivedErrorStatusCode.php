@@ -44,6 +44,12 @@ class EngineBlock_Corto_Exception_ReceivedErrorStatusCode extends EngineBlock_Ex
         $this->response = $response;
     }
 
+    public function setOriginalRequest(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request): void
+    {
+        $this->feedbackInfo['samlRequestId'] = $request->getId();
+        $this->feedbackInfo['samlServiceProvider'] = $request->getIssuerValue();
+    }
+
     public function getFeedbackInfo(): array
     {
         return $this->feedbackInfo;

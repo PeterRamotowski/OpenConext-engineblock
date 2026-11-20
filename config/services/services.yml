@@ -192,7 +192,7 @@ services:
     OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory:
         arguments:
             - '@engineblock.compat.metadata.definitions'
-            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactory'
+            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface'
             - '@OpenConext\EngineBlock\Metadata\Factory\ValueObject\EngineBlockConfiguration'
             - '@OpenConext\EngineBlockBundle\Url\UrlProvider'
             - '@OpenConext\EngineBlockBundle\Configuration\FeatureConfiguration'
@@ -211,7 +211,7 @@ services:
 
     OpenConext\EngineBlock\Metadata\Factory\Factory\IdentityProviderFactory:
         arguments:
-            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactory'
+            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface'
             - '@OpenConext\EngineBlock\Metadata\Factory\ValueObject\EngineBlockConfiguration'
             - '@OpenConext\EngineBlockBundle\Url\UrlProvider'
 
@@ -221,13 +221,16 @@ services:
         alias: OpenConext\EngineBlock\Saml2\DefaultIdGenerator
         public: true
 
+    OpenConext\EngineBlock\Xml\DocumentSignerInterface:
+        alias: OpenConext\EngineBlock\Xml\DocumentSigner
+
     OpenConext\EngineBlock\Xml\MetadataRenderer:
         arguments:
             - '@OpenConext\EngineBlockBundle\Localization\LanguageSupportProvider'
             - '@twig'
             - '@OpenConext\EngineBlock\Saml2\IdGenerator'
-            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactory'
-            - '@OpenConext\EngineBlock\Xml\DocumentSigner'
+            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface'
+            - '@OpenConext\EngineBlock\Xml\DocumentSignerInterface'
             - '@OpenConext\EngineBlock\Service\TimeProvider\TimeProvider'
             - '%metadata_add_requested_attributes%'
             - "%metadata_expiration_time%"
@@ -237,7 +240,7 @@ services:
             - '@OpenConext\EngineBlock\Xml\MetadataRenderer'
             - '@OpenConext\EngineBlock\Metadata\Factory\Factory\ServiceProviderFactory'
             - '@OpenConext\EngineBlock\Metadata\Factory\Factory\IdentityProviderFactory'
-            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactory'
+            - '@OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface'
             - '@OpenConext\EngineBlock\Metadata\MetadataRepository\IdpsMetadataRepository'
 
     OpenConext\EngineBlockBundle\Authentication\Service\UserService:
@@ -354,6 +357,9 @@ services:
     OpenConext\EngineBlock\Metadata\X509\KeyPairFactory:
         arguments:
             - '%encryption_keys%'
+
+    OpenConext\EngineBlock\Metadata\X509\KeyPairFactoryInterface:
+        alias: OpenConext\EngineBlock\Metadata\X509\KeyPairFactory
 
     OpenConext\EngineBlock\Validator\AllowedSchemeValidator:
         public: true

@@ -16,57 +16,62 @@
  * limitations under the License.
  */
 
-use SAML2\AuthnRequest;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\Response;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\XML\samlp\AbstractMessage;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
+use SimpleSAML\SAML2\XML\samlp\Response;
+use SimpleSAML\XML\DOMDocumentFactory;
 
 /**
- * NOTE: use for testing only!
- *
- * @todo write test
+ * Explicit DOM boundary between SAML protocol messages and their XML.
  */
 class EngineBlock_Saml2_MessageSerializer
 {
+    private const NS_SAMLP = 'urn:oasis:names:tc:SAML:2.0:protocol';
+
     /**
-     * @param Message $samlMessage
-     * @return mixed
+     * The XML of the message. A message with a signer configured is signed by saml2 v7 on toXML().
      */
-    public function serialize(Message $samlMessage)
+    public function serialize(AbstractMessage $samlMessage): string
     {
-        if ($samlMessage->getSignatureKey()) {
-            $samlMessageDomElement = $samlMessage->toSignedXML();
-        } else {
-            $samlMessageDomElement = $samlMessage->toUnsignedXML();
-        }
-        return $samlMessageDomElement->ownerDocument->saveXML($samlMessageDomElement);
+        return Saml2Value::toXmlString($samlMessage->toXML());
     }
 
     /**
      * @param string $samlMessageXml
-     * @param string $class
-     * @return Message
-     * @throws EngineBlock_Exception
+     * @param class-string<AuthnRequest|Response> $class
+     * @return AuthnRequest|Response
+     * @throws EngineBlock_Corto_Module_Bindings_VerificationException when the XML is not a valid message
+     * @throws EngineBlock_Exception for an unsupported message class
      */
     public function deserialize($samlMessageXml, $class)
     {
         $elementName = $this->getElementForClass($class);
-        $document = DOMDocumentFactory::fromString($samlMessageXml);
-        $messageDomElement = $document->getElementsByTagNameNs('urn:oasis:names:tc:SAML:2.0:protocol', $elementName)->item(0);
-        if ($class === AuthnRequest::class) {
-            return AuthnRequest::fromXML($messageDomElement);
-        }
-        else if ($class === Response::class) {
-            return Response::fromXML($messageDomElement);
-        }
 
-        throw new EngineBlock_Exception('Unknown message type for deserialization?');
+        try {
+            $document = DOMDocumentFactory::fromString((string) $samlMessageXml);
+            $messageDomElement = $document->documentElement;
+            if ($messageDomElement === null
+                || $messageDomElement->namespaceURI !== self::NS_SAMLP
+                || $messageDomElement->localName !== $elementName
+            ) {
+                throw new RuntimeException(sprintf('Expected samlp:%s as the document element', $elementName));
+            }
+
+            return $class::fromXML($messageDomElement);
+        } catch (Throwable $e) {
+            throw new EngineBlock_Corto_Module_Bindings_VerificationException(
+                sprintf('Unable to parse the SAML %s: %s', $elementName, $e->getMessage()),
+                EngineBlock_Exception::CODE_NOTICE,
+                $e instanceof Exception ? $e : new RuntimeException($e->getMessage(), 0, $e)
+            );
+        }
     }
 
     /**
      * @param string $class
      * @return string
-     * @throws Exception
+     * @throws EngineBlock_Exception
      */
     private function getElementForClass($class)
     {
@@ -76,7 +81,7 @@ class EngineBlock_Saml2_MessageSerializer
         );
 
         if (!isset($mapping[$class])) {
-            throw new Exception(sprintf('Unknown Message Type "%s"', $class));
+            throw new EngineBlock_Exception(sprintf('Unknown message type "%s" for deserialization', $class));
         }
 
         return $mapping[$class];

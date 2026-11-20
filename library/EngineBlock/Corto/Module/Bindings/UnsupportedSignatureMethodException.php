@@ -27,16 +27,34 @@ class EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException exte
      * EngineBlock_Corto_Module_Bindings_UnsupportedSignatureMethodException constructor.
      * @param string $signatureMethod
      */
-    public function __construct($signatureMethod)
+    public function __construct($signatureMethod, ?string $message = null, ?Exception $previous = null)
     {
         parent::__construct(
-            sprintf(
+            $message ?? sprintf(
                 'The signature method %s is not supported',
                 $signatureMethod
-            )
+            ),
+            self::CODE_ERROR,
+            $previous
         );
 
         $this->signatureMethod = $signatureMethod;
+    }
+
+    /**
+     * The signature method configured for a remote entity cannot be used to sign messages for it.
+     */
+    public static function forRemoteEntity(string $signatureMethod, string $entityId, ?Exception $previous = null): self
+    {
+        return new self(
+            $signatureMethod,
+            sprintf(
+                'The signature method %s configured for entity "%s" is not supported for signing',
+                $signatureMethod,
+                $entityId
+            ),
+            $previous
+        );
     }
 
     /**

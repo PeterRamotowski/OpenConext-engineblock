@@ -11,6 +11,7 @@
 1. [Javscript testing][js-testing]
 1. [Logging][logging]
 1. [WAYF remember my choice](wayf_remember_choice.md)
+1. [Session cutover and rollback](session_cutover.md)
 
 [license]: https://github.com/OpenConext/OpenConext-engineblock/tree/master/docs/LICENSE
 [release]: https://github.com/OpenConext/OpenConext-engineblock/tree/master/docs/release_procedure.md

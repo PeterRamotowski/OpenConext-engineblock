@@ -18,13 +18,8 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
-use DOMDocument;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\HttpBinding;
 use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Response;
-use SAML2\Compat\ContainerSingleton;
-use SAML2\Constants;
-use SAML2\XML\md\EntityDescriptor;
-use SAML2\XML\md\IDPSSODescriptor;
-use SAML2\XML\md\IndexedEndpointType;
 use Symfony\Component\Routing\RouterInterface;
 
 /**
@@ -49,7 +44,7 @@ class MockIdentityProviderFactory extends AbstractMockEntityFactory
      */
     public function createNew($idpName)
     {
-        $mockIdp = new MockIdentityProvider($idpName, $this->generateDefaultEntityMetadata($idpName));
+        $mockIdp = new MockIdentityProvider($idpName, $this->generateDefaultEntityConfiguration($idpName));
         $mockIdp->signAssertions();
         $mockIdp->setResponse($this->generateDefaultResponse($mockIdp));
         return $mockIdp;
@@ -57,47 +52,30 @@ class MockIdentityProviderFactory extends AbstractMockEntityFactory
 
     /**
      * @param string $idpName
-     * @return EntityDescriptor
+     * @return array
      */
-    protected function generateDefaultEntityMetadata($idpName)
+    protected function generateDefaultEntityConfiguration($idpName)
     {
-        $entityMetadata = new EntityDescriptor();
-        $entityMetadata->setEntityID(
-            $this->router->generate(
+        return [
+            'entityId' => $this->router->generate(
                 'functional_testing_idp_metadata',
                 ['idpName' => $idpName],
                 RouterInterface::ABSOLUTE_URL
-            )
-        );
-
-        $acsService = new IndexedEndpointType();
-        $acsService->setIndex(0);
-        $acsService->setBinding(Constants::BINDING_HTTP_REDIRECT);
-        $acsService->setLocation(
-            $this->router->generate(
+            ),
+            'ssoLocation' => $this->router->generate(
                 'functional_testing_idp_sso',
                 ['idpName' => $idpName],
                 RouterInterface::ABSOLUTE_URL
-            )
-        );
-
-        $idpSsoDescriptor = new IDPSSODescriptor();
-        $idpSsoDescriptor->setProtocolSupportEnumeration([Constants::NS_SAMLP]);
-        $idpSsoDescriptor->setSingleSignOnService([0 => $acsService]);
-
-        $idpSsoDescriptor->setKeyDescriptor([$this->generateDefaultSigningKeyPair()]);
-
-        $entityMetadata->setRoleDescriptor([$idpSsoDescriptor]);
-
-        return $entityMetadata;
+            ),
+        ] + $this->generateDefaultSigningKeyPair();
     }
 
     private function generateDefaultResponse(MockIdentityProvider $mockIdp)
     {
         $requestId = 'FIXME';
-        $idpEntityId = $mockIdp->entityId();
-        $responseId  = ContainerSingleton::getInstance()->generateId();
-        $assertionId = ContainerSingleton::getInstance()->generateId();
+        $idpEntityId = htmlspecialchars($mockIdp->entityId(), ENT_XML1 | ENT_QUOTES);
+        $responseId  = HttpBinding::generateId();
+        $assertionId = HttpBinding::generateId();
 
         $now        = gmdate('Y-m-d\TH:i:s\Z');
         $tomorrow   = gmdate('Y-m-d\TH:i:s\Z', time() + (24 * 60 * 60));
@@ -106,8 +84,7 @@ class MockIdentityProviderFactory extends AbstractMockEntityFactory
         $schacHomeOrganization  = 'engine-test-stand.openconext.org';
         $nameId = 'ETS-MOCK-IDP-' . time();
 
-        $document = new DOMDocument();
-        $document->loadXML(<<<RESPONSE
+        $response = Response::fromXml(<<<RESPONSE
 <samlp:Response
   xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
   xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
@@ -129,9 +106,7 @@ class MockIdentityProviderFactory extends AbstractMockEntityFactory
         </saml:Subject>
         <saml:AuthnStatement AuthnInstant="$now">
             <saml:AuthnContext>
-                <saml:AuthnContextClassRef>
-                    urn:oasis:names:tc:SAML:2.0:ac:classes:Password
-                </saml:AuthnContextClassRef>
+                <saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:Password</saml:AuthnContextClassRef>
             </saml:AuthnContext>
         </saml:AuthnStatement>
         <saml:AttributeStatement>
@@ -147,6 +122,9 @@ class MockIdentityProviderFactory extends AbstractMockEntityFactory
 RESPONSE
         );
 
-        return new Response($document->firstChild);
+        // Like saml2 4.x did when (re)serializing, write the attribute values with xsi:type="xs:string"
+        $response->setAttributes($response->getAttributes());
+
+        return $response;
     }
 }

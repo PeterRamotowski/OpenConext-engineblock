@@ -17,7 +17,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpFoundation\Exception\SessionNotFoundException;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -26,21 +26,20 @@ use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
 {
     private Session $session;
+    private RequestStack $requestStack;
     private EngineBlock_Saml2_AuthnRequestSessionRepository $repo;
 
     protected function setUp(): void
     {
         $this->session = new Session(new MockArraySessionStorage());
-        $requestStack = $this->createMock(RequestStack::class);
-        $requestStack->method('getSession')->willReturn($this->session);
-        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($requestStack);
+        $this->requestStack = $this->createStub(RequestStack::class);
+        $this->requestStack->method('getSession')->willReturn($this->session);
+        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($this->requestStack);
     }
 
     private function makeRequest(string $id): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $authnRequest = new AuthnRequest();
-        $authnRequest->setId($id);
-        return new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($authnRequest);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => $id]);
     }
 
     public function test_store_saves_request(): void
@@ -139,5 +138,117 @@ class EngineBlock_Test_Saml2_AuthnRequestSessionRepositoryTest extends TestCase
         $repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($requestStack);
 
         $this->assertNull($repo->findLinkedRequestId('_req-A'));
+    }
+
+    public function test_stored_requests_and_links_survive_session_serialization(): void
+    {
+        $spRequest = $this->makeRequest('_sp-request-A');
+        $spRequest->setKeyId('20260101');
+        $this->repo->store($spRequest);
+        $this->repo->link($this->makeRequest('_idp-request-B'), $spRequest);
+
+        $this->session->replace(unserialize(serialize($this->session->all())));
+
+        $restored = $this->repo->findRequestById('_sp-request-A');
+        $this->assertNotSame($spRequest, $restored);
+        $this->assertSame('_sp-request-A', $restored->getId());
+        $this->assertSame('20260101', $restored->getKeyId());
+        $this->assertSame('_sp-request-A', $this->repo->findLinkedRequestId('_idp-request-B'));
+    }
+
+    public function test_request_stored_by_another_release_restarts_the_flow(): void
+    {
+        $class = EngineBlock_Saml2_AuthnRequestAnnotationDecorator::class;
+        $legacy = unserialize(sprintf('O:%d:"%s"%s', strlen($class), $class, substr(serialize(['keyId' => null]), 1)));
+        $this->session->set('SAMLRequest', ['_old' => $legacy]);
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->findRequestById('_old');
+    }
+
+    public function test_request_of_an_unknown_class_restarts_the_flow(): void
+    {
+        $this->session->set('SAMLRequest', ['_old' => unserialize('O:21:"SAML2_Removed_Message":0:{}')]);
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->findRequestById('_old');
+    }
+
+    public function test_pending_request_is_consumed_once_and_its_sp_link_remains(): void
+    {
+        $this->linkPendingRequest();
+        $this->session->replace(unserialize(serialize($this->session->all())));
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1001);
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1002);
+    }
+
+    #[DataProvider('invalidPendingRequestProvider')]
+    public function test_pending_request_rejects_expiry_and_wrong_target(
+        string $issuer,
+        string $destination,
+        int $now,
+        string $exception
+    ): void {
+        $this->linkPendingRequest();
+        $this->expectException($exception);
+        $this->repo->consumePendingRequest('_idp', $issuer, $destination, $now);
+    }
+
+    public static function invalidPendingRequestProvider(): array
+    {
+        return [
+            'expired at boundary' => ['https://idp', 'https://engine/acs', 1300, EngineBlock_Corto_Module_Services_SessionLostException::class],
+            'future request' => ['https://idp', 'https://engine/acs', 939, EngineBlock_Corto_Module_Services_SessionLostException::class],
+            'another IdP' => ['https://other-idp', 'https://engine/acs', 1001, EngineBlock_Corto_Module_Bindings_VerificationException::class],
+            'another ACS' => ['https://idp', 'https://engine/stepup', 1001, EngineBlock_Corto_Module_Bindings_VerificationException::class],
+        ];
+    }
+
+    public function test_wrong_target_does_not_consume_the_legitimate_pending_request(): void
+    {
+        $this->linkPendingRequest();
+        try {
+            $this->repo->consumePendingRequest('_idp', 'https://other-idp', 'https://engine/acs', 1001);
+            $this->fail('A response from a different IdP must be rejected');
+        } catch (EngineBlock_Corto_Module_Bindings_VerificationException) {
+            $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1299);
+            $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+        }
+    }
+
+    public function test_configured_lifetime_applies_at_the_expiry_boundary(): void
+    {
+        $this->repo = new EngineBlock_Saml2_AuthnRequestSessionRepository($this->requestStack, 600);
+        $this->linkPendingRequest();
+        $this->linkPendingRequest('_second-idp-request');
+
+        $this->repo->consumePendingRequest('_idp', 'https://idp', 'https://engine/acs', 1599);
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_idp'));
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->repo->consumePendingRequest('_second-idp-request', 'https://idp', 'https://engine/acs', 1600);
+    }
+
+    public function test_linking_prunes_expired_pending_requests_and_keeps_their_sp_links(): void
+    {
+        $this->linkPendingRequest('_expired');
+        $this->linkPendingRequest('_recent', 1299);
+        $this->linkPendingRequest('_new', 1300);
+
+        $this->assertSame(['_recent', '_new'], array_keys($this->session->get('SAMLRequestPending')));
+        $this->assertSame('_sp', $this->repo->findLinkedRequestId('_expired'));
+    }
+
+    private function linkPendingRequest(string $id = '_idp', int $issueInstant = 1000): void
+    {
+        $spRequest = $this->makeRequest('_sp');
+        $idpRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest([
+            'id' => $id, 'issueInstant' => $issueInstant, 'acsUrl' => 'https://engine/acs',
+        ]);
+        $this->repo->store($spRequest);
+        $this->repo->link($idpRequest, $spRequest, 'https://idp');
     }
 }

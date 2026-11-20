@@ -33,19 +33,30 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
     private const string SESSION_KEY_REQUESTS = 'SAMLRequest';
     private const string SESSION_KEY_LINKS    = 'SAMLRequestLinks';
 
+    private const string SESSION_KEY_PENDING = 'SAMLRequestPending';
+
+    public const int REQUEST_LIFETIME_SECONDS = 300;
+
     /**
      * @var RequestStack
      */
     private $requestStack;
 
-    public function __construct(RequestStack $requestStack)
-    {
+    public function __construct(
+        RequestStack $requestStack,
+        private readonly int $requestLifetimeSeconds = self::REQUEST_LIFETIME_SECONDS
+    ) {
+        if ($requestLifetimeSeconds <= 0) {
+            throw new InvalidArgumentException('saml_request_lifetime_seconds must be a positive integer');
+        }
         $this->requestStack = $requestStack;
     }
 
     /**
      * @param string $requestId
      * @return EngineBlock_Saml2_AuthnRequestAnnotationDecorator|null
+     * @throws EngineBlock_Corto_Module_Services_SessionLostException when the stored state is from another release
+     * @throws EngineBlock_Corto_Module_Bindings_VerificationException when the stored message cannot be decoded
      */
     public function findRequestById($requestId)
     {
@@ -55,7 +66,20 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
             return null;
         }
 
-        return $session->get(self::SESSION_KEY_REQUESTS, [])[$requestId] ?? null;
+        $request = $session->get(self::SESSION_KEY_REQUESTS, [])[$requestId] ?? null;
+        if ($request === null) {
+            return null;
+        }
+
+        // State that was not written by this release is never trusted; the flow restarts via session-lost feedback.
+        if (!$request instanceof EngineBlock_Saml2_AuthnRequestAnnotationDecorator) {
+            throw new EngineBlock_Corto_Module_Services_SessionLostException(
+                sprintf('Stored request "%s" is not readable by this release', $requestId)
+            );
+        }
+        $request->assertRestored();
+
+        return $request;
     }
 
     /**
@@ -103,7 +127,8 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
      */
     public function link(
         EngineBlock_Saml2_AuthnRequestAnnotationDecorator $fromRequest,
-        EngineBlock_Saml2_AuthnRequestAnnotationDecorator $toRequest
+        EngineBlock_Saml2_AuthnRequestAnnotationDecorator $toRequest,
+        ?string $identityProvider = null
     ) {
         try {
             $session = $this->requestStack->getSession();
@@ -115,6 +140,55 @@ class EngineBlock_Saml2_AuthnRequestSessionRepository
         $links[$fromRequest->getId()] = $toRequest->getId();
         $session->set(self::SESSION_KEY_LINKS, $links);
 
+        $issuedAt = $fromRequest->getIssueInstant();
+        $expirationCutoff = $issuedAt - $this->requestLifetimeSeconds;
+        $pending = array_filter(
+            $session->get(self::SESSION_KEY_PENDING, []),
+            static fn (mixed $context): bool => is_array($context)
+                && is_int($context['issuedAt'] ?? null)
+                && $context['issuedAt'] > $expirationCutoff
+        );
+        $pending[$fromRequest->getId()] = [
+            'identityProvider' => $identityProvider,
+            'assertionConsumerUrl' => $fromRequest->getAssertionConsumerServiceURL(),
+            'issuedAt' => $issuedAt,
+        ];
+        $session->set(self::SESSION_KEY_PENDING, $pending);
+
         return $this;
+    }
+
+    /**
+     * Consume a live request once, while keeping its SP link for subsequent consent/Stepup processing.
+     */
+    public function consumePendingRequest(string $requestId, string $identityProvider, string $destination, int $now): void
+    {
+        try {
+            $session = $this->requestStack->getSession();
+        } catch (SessionNotFoundException $exception) {
+            throw new EngineBlock_Corto_Module_Services_SessionLostException('Session lost', 0, $exception);
+        }
+
+        $pending = $session->get(self::SESSION_KEY_PENDING, []);
+        $context = $pending[$requestId] ?? null;
+        if (!is_array($context) || !is_int($context['issuedAt'] ?? null)
+            || $now - $context['issuedAt'] >= $this->requestLifetimeSeconds
+            || $context['issuedAt'] > $now + 60
+        ) {
+            throw new EngineBlock_Corto_Module_Services_SessionLostException(
+                'The authentication request is no longer pending or has expired'
+            );
+        }
+
+        if (($context['identityProvider'] ?? null) !== $identityProvider
+            || ($context['assertionConsumerUrl'] ?? null) !== $destination
+        ) {
+            throw new EngineBlock_Corto_Module_Bindings_VerificationException(
+                'The Response does not match the identity provider and ACS of the pending request'
+            );
+        }
+
+        unset($pending[$requestId]);
+        $session->set(self::SESSION_KEY_PENDING, $pending);
     }
 }

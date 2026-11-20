@@ -23,6 +23,8 @@ use OpenConext\EngineBlock\Metadata\MetadataRepository\Filter\RemoveOtherWorkflo
 use OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\Visitor\DisableDisallowedEntitiesInWayfVisitor;
 use OpenConext\EngineBlock\Metadata\Service;
+use OpenConext\EngineBlock\Metadata\X509\InvalidEncryptionKeyConfigurationException;
+use OpenConext\EngineBlock\Metadata\X509\KeyPairFactory;
 
 class EngineBlock_Corto_Adapter
 {
@@ -53,7 +55,7 @@ class EngineBlock_Corto_Adapter
 
         $request = $this->_proxyServer
             ->getBindingsModule()
-            ->receiveRequest();
+            ->receiveRequest($idPProviderHash);
 
         $this->_filterRemoteEntitiesByRequestSp($request);
         $this->_filterRemoteEntitiesByRequestSpWorkflowState($request);
@@ -158,7 +160,7 @@ class EngineBlock_Corto_Adapter
     protected function _filterRemoteEntitiesByRequestSp(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request)
     {
         $repository = $this->getMetadataRepository();
-        $serviceProvider = $repository->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $repository->fetchServiceProviderByEntityId($request->getIssuerValue());
 
         if (!$serviceProvider->allowAll) {
             if ($serviceProvider->getCoins()->displayUnconnectedIdpsWayf()) {
@@ -281,7 +283,7 @@ class EngineBlock_Corto_Adapter
     protected function _filterRemoteEntitiesByRequestSpWorkflowState(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $request)
     {
         $repository = $this->getMetadataRepository();
-        $serviceProvider = $repository->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $repository->fetchServiceProviderByEntityId($request->getIssuerValue());
 
         $filter = new RemoveOtherWorkflowStatesFilter(
             $serviceProvider,
@@ -374,7 +376,6 @@ class EngineBlock_Corto_Adapter
         $proxyServer->setConfigs(array(
             'ConsentStoreValues' => $settings->isConsentStoreValuesActive(),
             'metadataValidUntilSeconds' => 86400, // This sets the time (in seconds) the entity metadata is valid.
-            'forbiddenSignatureMethods' => $settings->getForbiddenSignatureMethods()
         ));
 
         $this->configureProxyCertificates($proxyServer);
@@ -460,29 +461,19 @@ class EngineBlock_Corto_Adapter
             throw new EngineBlock_Corto_ProxyServer_Exception("No encryption/signing keys defined!");
         }
 
-        $publicKeyFactory = new EngineBlock_X509_CertificateFactory();
-        $keyPairs = array();
-        foreach ($keysConfig as $keyId => $keyConfig) {
-            if (!isset($keyConfig['privateFile'])) {
-                $this->_getLogger()->warning(
-                    'Reference to private key file not found for key: ' . $keyId . ' skipping keypair.'
-                );
-                continue;
-            }
-            if (!isset($keyConfig['publicFile'])) {
-                $this->_getLogger()->warning('Reference to public key file not found for key: ' . $keyId);
-                continue;
-            }
-
-            $keyPairs[$keyId] = new EngineBlock_X509_KeyPair(
-                $publicKeyFactory->fromFile($keyConfig['publicFile']),
-                new EngineBlock_X509_PrivateKey($keyConfig['privateFile'])
-            );
+        try {
+            $configuredPairs = (new KeyPairFactory($keysConfig))->buildAllByIdentifier();
+        } catch (InvalidEncryptionKeyConfigurationException | RuntimeException $exception) {
+            throw new EngineBlock_Exception($exception->getMessage(), EngineBlock_Exception::CODE_ERROR, $exception);
         }
 
-        if (empty($keyPairs)) {
-            throw new EngineBlock_Exception(
-                'No (valid) keypairs found in configuration! Please configure at least 1 keypair under encryption.keys'
+        $keyPairs = [];
+        foreach ($configuredPairs as $keyId => $pair) {
+            $privateKey = $pair->getPrivateKey();
+            $keyPairs[$keyId] = new EngineBlock_X509_KeyPair(
+                new EngineBlock_X509_Certificate($pair->getCertificate()->toResource()),
+                $privateKey === null ? null : new EngineBlock_X509_PrivateKey($privateKey->getFilePath()),
+                $pair->usesPrivateKeyAgent()
             );
         }
 

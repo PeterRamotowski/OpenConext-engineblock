@@ -31,9 +31,6 @@ use Monolog\Logger;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response;
 
 class EngineBlock_Test_Corto_Filter_Command_SramInterruptFilterTest extends TestCase
 {
@@ -136,7 +133,7 @@ class EngineBlock_Test_Corto_Filter_Command_SramInterruptFilterTest extends Test
         $request = $this->mockRequest();
         $sramFilter->setRequest($request);
 
-        $sramFilter->setResponse(new EngineBlock_Saml2_ResponseAnnotationDecorator(new Response()));
+        $sramFilter->setResponse(EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse());
 
         $response = AuthzResponse::fromData([
             'msg' => 'interrupt',
@@ -219,7 +216,7 @@ class EngineBlock_Test_Corto_Filter_Command_SramInterruptFilterTest extends Test
         $request = $this->mockRequest();
         $sramFilter->setRequest($request);
 
-        $sramFilter->setResponse(new EngineBlock_Saml2_ResponseAnnotationDecorator(new Response()));
+        $sramFilter->setResponse(EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse());
 
 
         $response = AuthzResponse::fromData([
@@ -298,7 +295,7 @@ class EngineBlock_Test_Corto_Filter_Command_SramInterruptFilterTest extends Test
         $server->shouldReceive('getRepository')->andReturn($this->repository);
         $sramFilter->setProxyServer($server);
         $sramFilter->setRequest($this->mockRequest());
-        $sramFilter->setResponse(new EngineBlock_Saml2_ResponseAnnotationDecorator(new Response()));
+        $sramFilter->setResponse(EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse());
 
         $sp = $this->mockServiceProvider('spEntityId');
         $sp->expects('getCoins->collabEnabled')->andReturn(true);
@@ -342,7 +339,7 @@ public function testThrowsEngineBlockExceptionIfPolicyCannotBeChecked()
         $request = $this->mockRequest();
         $sramFilter->setRequest($request);
 
-        $sramFilter->setResponse(new EngineBlock_Saml2_ResponseAnnotationDecorator(new Response()));
+        $sramFilter->setResponse(EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse());
 
 
         /** @var \Mockery\Mock|ServiceProvider $sp */
@@ -417,10 +414,6 @@ public function testThrowsEngineBlockExceptionIfPolicyCannotBeChecked()
 
     private function mockRequest(): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $assertion = new Assertion();
-        $request = new AuthnRequest();
-        $response = new SAML2\Response();
-        $response->setAssertions(array($assertion));
-        return new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($request);
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
     }
 }

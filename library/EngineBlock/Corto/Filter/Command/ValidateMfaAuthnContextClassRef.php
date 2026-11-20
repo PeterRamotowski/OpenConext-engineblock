@@ -82,8 +82,8 @@ class EngineBlock_Corto_Filter_Command_ValidateMfaAuthnContextClassRef extends E
     private function getAuthnMethods(EngineBlock_Saml2_ResponseAnnotationDecorator $response)
     {
         $values = [];
-        $values[] = $response->getAssertion()->getAuthnContextClassRef();
-        $attributes = $response->getAssertion()->getAttributes();
+        $values[] = $response->getAuthnContextClassRef();
+        $attributes = $response->getAttributes();
 
         if (isset($attributes[self::MICROSOFT_AUTHN_METHODS_REFERENCES_ATTRIBUTE])) {
             $values = array_merge($values, $attributes[self::MICROSOFT_AUTHN_METHODS_REFERENCES_ATTRIBUTE]);

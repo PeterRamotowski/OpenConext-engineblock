@@ -18,9 +18,11 @@
 
 namespace OpenConext\EngineBlock\Metadata\X509;
 
+use RuntimeException;
+
 /**
- * Class X509KeyPair
- * @package OpenConext\EngineBlock\Metadata
+ * One of EngineBlock's key pairs for metadata and certificate publication. A local key pair holds its private key
+ * file; a Private Key Agent key pair holds only the certificate.
  */
 class X509KeyPair
 {
@@ -30,20 +32,34 @@ class X509KeyPair
     private $certificate;
 
     /**
-     * @var X509PrivateKey
+     * @var X509PrivateKey|null
      */
     private $private;
 
+    private bool $usesPrivateKeyAgent;
+
     /**
-     * @param X509Certificate $certificate
-     * @param X509PrivateKey $private
+     * @throws RuntimeException when an agent key pair lacks a certificate or has a private key
      */
     public function __construct(
         ?X509Certificate $certificate = null,
-        ?X509PrivateKey $private = null
+        ?X509PrivateKey $private = null,
+        bool $usesPrivateKeyAgent = false
     ) {
+        if ($usesPrivateKeyAgent && ($certificate === null || $private !== null)) {
+            throw new RuntimeException(
+                'A private key agent key pair requires a certificate and must not have a local private key'
+            );
+        }
+
         $this->certificate = $certificate;
         $this->private = $private;
+        $this->usesPrivateKeyAgent = $usesPrivateKeyAgent;
+    }
+
+    public static function forPrivateKeyAgent(X509Certificate $certificate): self
+    {
+        return new self($certificate, null, true);
     }
 
     /**
@@ -55,10 +71,15 @@ class X509KeyPair
     }
 
     /**
-     * @return X509PrivateKey
+     * @return X509PrivateKey|null Always null for a private key agent key pair
      */
     public function getPrivateKey()
     {
         return $this->private;
+    }
+
+    public function usesPrivateKeyAgent(): bool
+    {
+        return $this->usesPrivateKeyAgent;
     }
 }

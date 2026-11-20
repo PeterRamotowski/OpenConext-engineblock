@@ -4,6 +4,8 @@ parameters:
     #   4102bffe58a9ecbce3c7c934e0aa8ece46efcf82/library/EngineBlock/Application/Bootstrapper.php#L242
     locale: en
     container.autowiring.strict_mode: true
+    session_cookie_name: engineblock_session_v7
+    saml_request_lifetime_seconds: 300
 
     # This value is used as cache-buster, replaced by the release script
     asset_version: "#ASSET_VERSION#"
@@ -33,6 +35,8 @@ framework:
         # NULL means that Symfony uses PHP default session mechanism
         handler_id: null
         storage_factory_id: session.storage.factory.native
+        # Use a fresh cookie name for every cutover and rollback to separate incompatible session formats.
+        name: '%session_cookie_name%'
         cookie_secure: true
         cookie_samesite: 'none'
 

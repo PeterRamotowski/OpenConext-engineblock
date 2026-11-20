@@ -20,7 +20,6 @@ namespace OpenConext\EngineBlockFunctionalTestingBundle\Saml2;
 
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockServiceProvider;
 use OpenConext\EngineBlockFunctionalTestingBundle\Service\EngineBlock;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 
 /**
  * Class AuthnRequestFactory
@@ -31,12 +30,14 @@ class AuthnRequestFactory
     /**
      * @param MockServiceProvider $mockSp
      * @param EngineBlock $engineBlock
+     * @param string|null $baseUrl Scheme and host to resolve the (relative) EngineBlock locations against
      * @return AuthnRequest
      * @throws \Exception
      */
-    public function createForRequestFromTo(MockServiceProvider $mockSp, EngineBlock $engineBlock)
+    public function createForRequestFromTo(MockServiceProvider $mockSp, EngineBlock $engineBlock, ?string $baseUrl = null)
     {
-        $request = $mockSp->getAuthnRequest();
+        // Work on a copy: the signer must not end up in the (persisted) mock SP
+        $request = clone $mockSp->getAuthnRequest();
 
         // Set / override the Destination
         $transparentIdp = $mockSp->getTransparentIdp();
@@ -45,12 +46,15 @@ class AuthnRequestFactory
         } else {
             $destination = $engineBlock->singleSignOnLocation();
         }
+        // SAML 2 requires an absolute Destination URI; the legacy library sent the relative path and relied on
+        // the browser resolving the redirect against the current host.
+        if ($baseUrl !== null && str_starts_with($destination, '/')) {
+            $destination = rtrim($baseUrl, '/') . $destination;
+        }
         $request->setDestination($destination);
 
         if ($mockSp->mustSignAuthnRequests()) {
-            $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-            $key->loadKey($mockSp->getPrivateKeyPem());
-            $request->setSignatureKey($key);
+            $request->setSigner(XmlSecurity::signer($mockSp->getPrivateKeyPem()));
         }
 
         return $request;

@@ -18,15 +18,15 @@
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Metadata\Entity\IdentityProvider;
+use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\MetadataRepository\InMemoryMetadataRepository;
+use OpenConext\EngineBlock\Metadata\MfaEntityCollection;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest;
+use Psr\Log\NullLogger;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Twig\Environment;
 
-/**
- * Note: this Test only tests setting of NameIDFormat, add other tests if required
- */
 class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -37,7 +37,6 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 
         $originalRequest = $this->factoryOriginalRequest();
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -54,7 +53,6 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
 
         $originalRequest = $this->factoryOriginalRequest();
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -76,9 +74,8 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         $originalRequest = $this->factoryOriginalRequest();
 
         $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
-        $identityProvider->nameIdFormat = 'fooFormat';
+        $identityProvider->nameIdFormat = 'urn:example:nameid-format:foo';
 
-        /** @var AuthnRequest $enhancedRequest */
         $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
             $originalRequest,
             $identityProvider,
@@ -86,10 +83,63 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         );
 
         $nameIdPolicy = $enhancedRequest->getNameIdPolicy();
-        $this->assertEquals($nameIdPolicy['Format'], 'fooFormat');
+        $this->assertEquals($nameIdPolicy['Format'], 'urn:example:nameid-format:foo');
+        $this->assertTrue($nameIdPolicy['AllowCreate']);
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('provideKeyExpectations')]
+    public function testAllowCreateIsOmittedForTransientNameIDFormat()
+    {
+        $proxyServer = $this->factoryProxyServer();
+        $originalRequest = $this->factoryOriginalRequest();
+
+        $identityProvider = $proxyServer->getRepository()->fetchIdentityProviderByEntityId('testIdp');
+        $identityProvider->nameIdFormat = \SimpleSAML\SAML2\Constants::NAMEID_TRANSIENT;
+
+        $enhancedRequest = EngineBlock_Saml2_AuthnRequestFactory::createFromRequest(
+            $originalRequest,
+            $identityProvider,
+            $proxyServer
+        );
+
+        $this->assertSame(
+            ['Format' => \SimpleSAML\SAML2\Constants::NAMEID_TRANSIENT],
+            $enhancedRequest->getNameIdPolicy()
+        );
+    }
+
+    #[DataProvider('invalidAuthnContextConfigurationProvider')]
+    public function testInvalidConfiguredAuthnContextIsAConfigurationError(
+        ?string $defaultAuthnContext,
+        ?string $mfaMethod
+    ): void {
+        $spEntityId = 'https://sp.example.org/metadata';
+        $idp = new IdentityProvider(
+            'https://idp.example.org/metadata',
+            mfaEntities: $mfaMethod === null
+                ? null
+                : MfaEntityCollection::fromMetadataPush([['name' => $spEntityId, 'level' => $mfaMethod]]),
+            defaultRAC: $defaultAuthnContext,
+        );
+        $proxyServer = $this->factoryProxyServer();
+        $proxyServer->setLogger(new NullLogger());
+        $proxyServer->setRepository(new InMemoryMetadataRepository([$idp], [new ServiceProvider($spEntityId)]));
+        $request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['issuer' => $spEntityId]);
+
+        $this->expectException(EngineBlock_Corto_Exception_InvalidMfaAuthnContextClassRef::class);
+        $this->expectExceptionMessage('expected an absolute URI');
+
+        $proxyServer->sendAuthenticationRequest($request, $idp->entityId);
+    }
+
+    public static function invalidAuthnContextConfigurationProvider(): array
+    {
+        return [
+            'default authentication context' => ['invalid-default-context', null],
+            'MFA method' => [null, 'invalid-mfa-method'],
+        ];
+    }
+
+    #[DataProvider('provideKeyExpectations')]
     public function testGetSigningCertificates(?string $keyOverride, bool $force, string $expectedResult)
     {
         $keys = [
@@ -126,14 +176,9 @@ class EngineBlock_Test_Corto_ProxyServerTest extends TestCase
         ];
     }
 
-    /**
-     * @return array
-     */
-    private function factoryOriginalRequest()
+    private function factoryOriginalRequest(): EngineBlock_Saml2_AuthnRequestAnnotationDecorator
     {
-        $originalRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(new AuthnRequest());
-
-        return $originalRequest;
+        return EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
     }
 
     private function factoryProxyServer()

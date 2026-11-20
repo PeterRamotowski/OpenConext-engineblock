@@ -19,9 +19,9 @@ namespace OpenConext\EngineBlockFunctionalTestingBundle\Controllers;
 
 use Exception;
 use OpenConext\EngineBlockFunctionalTestingBundle\Mock\MockStepupGateway;
-use SAML2\Constants;
-use SAML2\HTTPRedirect;
-use SAML2\Response as SamlResponse;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\HttpBinding;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Response as SamlResponse;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -63,14 +63,13 @@ class StepupMockController extends AbstractController
             // Parse available responses
             $responses = $this->getAvailableResponses($request);
 
-            $redirectBinding = new HTTPRedirect();
-            $message = $redirectBinding->receive();
+            $message = HttpBinding::receive($request);
 
             // Present response
             $body = $this->twig->render(
                 '@OpenConextEngineBlockFunctionalTesting/Sso/consumeAssertion.html.twig',
                 [
-                    'receivedAuthnRequest' => $message->toUnsignedXML()->ownerDocument->saveXml(),
+                    'receivedAuthnRequest' => $message['xml'],
                     'responses' => $responses,
                 ]
             );
@@ -158,6 +157,6 @@ class StepupMockController extends AbstractController
      */
     private function getFullRequestUri(Request $request)
     {
-        return $request->getSchemeAndHttpHost() . $request->getBasePath() . $request->getRequestUri();
+        return $request->getUriForPath($request->getPathInfo());
     }
 }

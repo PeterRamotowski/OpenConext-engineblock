@@ -18,7 +18,6 @@
 
 namespace OpenConext\EngineBlock\Metadata\X509;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use RuntimeException;
 
 /**
@@ -47,31 +46,5 @@ class X509PrivateKey
     public function getFilePath(): string
     {
         return $this->filePath;
-    }
-
-    /**
-     * @return XMLSecurityKey
-     */
-    public function toXmlSecurityKey(): XMLSecurityKey
-    {
-        $privateKeyObj = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKeyObj->loadKey($this->filePath, true);
-        return $privateKeyObj;
-    }
-
-    /**
-     * Sign some data with this private key.
-     *
-     * @param string $data
-     * @return string
-     */
-    public function sign(string $data): string
-    {
-        $privateKeyResource = openssl_pkey_get_private('file://' . $this->filePath);
-
-        $signature = null;
-        openssl_sign($data, $signature, $privateKeyResource);
-
-        return $signature;
     }
 }

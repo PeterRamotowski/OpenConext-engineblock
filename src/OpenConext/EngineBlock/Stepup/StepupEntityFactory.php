@@ -23,8 +23,8 @@ use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use OpenConext\EngineBlock\Metadata\IndexedService;
 use OpenConext\EngineBlock\Metadata\Mdui;
 use OpenConext\EngineBlock\Metadata\Service;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 
 class StepupEntityFactory
 {
@@ -68,7 +68,7 @@ class StepupEntityFactory
                 Constants::NAMEID_PERSISTENT,
             ),
             true,
-            XMLSecurityKey::RSA_SHA256,
+            XmlSecurityConstants::SIG_RSA_SHA256,
             IdentityProvider::WORKFLOW_STATE_DEFAULT,
             '',
             false,
@@ -131,7 +131,7 @@ class StepupEntityFactory
                 Constants::NAMEID_PERSISTENT,
             ),
             true,
-            XMLSecurityKey::RSA_SHA256,
+            XmlSecurityConstants::SIG_RSA_SHA256,
             IdentityProvider::WORKFLOW_STATE_DEFAULT,
             [],
             false,

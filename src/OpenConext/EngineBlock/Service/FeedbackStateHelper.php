@@ -40,7 +40,11 @@ class FeedbackStateHelper implements FeedbackStateHelperInterface
 
     public function storeFeedbackInfo(array $feedback): void
     {
-        $requestKey = $this->session()->get('currentSamlRequestId') ?? self::EARLY_FEEDBACK_KEY;
+        $hasClaimedIssuer = $this->requestStack->getCurrentRequest()?->attributes
+            ->has(self::CLAIMED_SERVICE_PROVIDER_ATTRIBUTE);
+        $requestKey = $hasClaimedIssuer
+            ? self::EARLY_FEEDBACK_KEY
+            : ($this->session()->get('currentSamlRequestId') ?? self::EARLY_FEEDBACK_KEY);
         $all = $this->session()->get('feedbackInfo') ?: [];
         $all[$requestKey] = $feedback;
         $this->session()->set('feedbackInfo', $all);

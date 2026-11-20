@@ -17,8 +17,8 @@
  */
 
 use OpenConext\EngineBlockBridge\Authentication\Repository\UserDirectoryAdapter;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
 
 class EngineBlock_Corto_Filter_Command_ProvisionUser extends EngineBlock_Corto_Filter_Command_Abstract
     implements EngineBlock_Corto_Filter_Command_ResponseModificationInterface,
@@ -62,9 +62,6 @@ class EngineBlock_Corto_Filter_Command_ProvisionUser extends EngineBlock_Corto_F
 
         // Adjust the NameID in the OLD response (for consent), set the collab:person uid
 
-        $nameId = new NameID();
-        $nameId->setValue($collabPersonIdValue);
-        $nameId->setFormat(Constants::NAMEID_PERSISTENT);
-        $this->_response->getAssertion()->setNameId($nameId);
+        $this->_response->setNameId(Saml2Value::nameId($collabPersonIdValue, Constants::NAMEID_PERSISTENT));
     }
 }

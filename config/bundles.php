@@ -8,6 +8,7 @@ return [
     Doctrine\Bundle\DoctrineBundle\DoctrineBundle::class => ['all' => true],
     Doctrine\Bundle\MigrationsBundle\DoctrineMigrationsBundle::class => ['all' => true],
     OpenConext\MonitorBundle\OpenConextMonitorBundle::class => ['all' => true],
+    Surfnet\SamlBundle\SurfnetSamlBundle::class => ['all' => true],
     OpenConext\EngineBlockBundle\OpenConextEngineBlockBundle::class => ['all' => true],
     Liip\FunctionalTestBundle\LiipFunctionalTestBundle::class => ['test' => true],
     Symfony\Bundle\DebugBundle\DebugBundle::class => ['dev' => true, 'test' => true, 'ci' => true],

@@ -16,6 +16,10 @@
  * limitations under the License.
  */
 
+/**
+ * One of EngineBlock's key pairs. A local key pair holds its private key file; a Private Key Agent key pair holds
+ * only the certificate, and the agent performs its private-key operations.
+ */
 class EngineBlock_X509_KeyPair
 {
     /**
@@ -24,16 +28,31 @@ class EngineBlock_X509_KeyPair
     private $certificate;
 
     /**
-     * @var EngineBlock_X509_PrivateKey
+     * @var EngineBlock_X509_PrivateKey|null
      */
     private $private;
 
+    private bool $usesPrivateKeyAgent;
+
     public function __construct(
         ?EngineBlock_X509_Certificate $certificate = null,
-        ?EngineBlock_X509_PrivateKey $private = null
+        ?EngineBlock_X509_PrivateKey $private = null,
+        bool $usesPrivateKeyAgent = false
     ) {
+        if ($usesPrivateKeyAgent && ($certificate === null || $private !== null)) {
+            throw new EngineBlock_Exception(
+                'A private key agent key pair requires a certificate and must not have a local private key'
+            );
+        }
+
         $this->certificate = $certificate;
         $this->private = $private;
+        $this->usesPrivateKeyAgent = $usesPrivateKeyAgent;
+    }
+
+    public static function forPrivateKeyAgent(EngineBlock_X509_Certificate $certificate): self
+    {
+        return new self($certificate, null, true);
     }
 
     public function getCertificate()
@@ -41,8 +60,16 @@ class EngineBlock_X509_KeyPair
         return $this->certificate;
     }
 
+    /**
+     * @return EngineBlock_X509_PrivateKey|null Always null for a private key agent key pair
+     */
     public function getPrivateKey()
     {
         return $this->private;
+    }
+
+    public function usesPrivateKeyAgent(): bool
+    {
+        return $this->usesPrivateKeyAgent;
     }
 }

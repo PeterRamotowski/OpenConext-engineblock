@@ -21,6 +21,7 @@ namespace OpenConext\EngineBlock\Metadata\X509;
 use OpenConext\EngineBlock\Exception\InvalidArgumentException;
 use OpenConext\EngineBlockBundle\Exception\UnknownKeyIdException;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 class KeyPairFactoryTest extends TestCase
 {
@@ -64,6 +65,29 @@ class KeyPairFactoryTest extends TestCase
         $this->assertEquals(file_get_contents('file://' . __DIR__ . '/test2.pem.crt'), $keyPairs[1]->getCertificate()->toPem());
     }
 
+    public function test_agent_key_pairs_carry_only_their_certificate()
+    {
+        $factory = new KeyPairFactory([
+            'default' => [
+                'publicFile' => 'file://' . __DIR__ . '/test.pem.crt',
+                'privateFile' => 'file://' . __DIR__ . '/test.pem.key',
+            ],
+            'rollover' => [
+                'backend' => 'agent',
+                'publicFile' => 'file://' . __DIR__ . '/test2.pem.crt',
+                'agent' => ['key' => 'eb-rollover', 'token' => 'token', 'operations' => ['sign']],
+            ],
+        ]);
+
+        $agentKeyPair = $factory->buildFromIdentifier('rollover');
+        $this->assertTrue($agentKeyPair->usesPrivateKeyAgent());
+        $this->assertNull($agentKeyPair->getPrivateKey());
+        $this->assertEquals(file_get_contents('file://' . __DIR__ . '/test2.pem.crt'), $agentKeyPair->getCertificate()->toPem());
+
+        $this->assertFalse($factory->buildFromIdentifier(null)->usesPrivateKeyAgent());
+        $this->assertCount(2, $factory->buildAll());
+    }
+
     public function test_it_raises_exception_when_requesting_empty_key_pair_identifier()
     {
         $this->expectException(InvalidArgumentException::class);
@@ -76,5 +100,21 @@ class KeyPairFactoryTest extends TestCase
         $this->expectException(UnknownKeyIdException::class);
         $this->expectExceptionMessage("Unknown key id 'ahnk-morpork'");
         $this->factory->buildFromIdentifier('ahnk-morpork');
+    }
+
+    public function test_missing_certificate_reports_its_path(): void
+    {
+        $certificate = __DIR__ . '/missing-certificate.crt';
+        $factory = new KeyPairFactory([
+            'default' => [
+                'publicFile' => $certificate,
+                'privateFile' => __DIR__ . '/test.pem.key',
+            ],
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(sprintf('Unable to read file at path "%s".', $certificate));
+
+        $factory->buildFromIdentifier('default');
     }
 }

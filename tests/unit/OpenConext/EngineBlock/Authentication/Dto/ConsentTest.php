@@ -33,7 +33,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionProperty;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 class ConsentTest extends TestCase
 {

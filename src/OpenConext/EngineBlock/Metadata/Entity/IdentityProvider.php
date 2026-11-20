@@ -35,8 +35,8 @@ use OpenConext\EngineBlock\Metadata\ShibMdScope;
 use OpenConext\EngineBlock\Metadata\StepupConnections;
 use OpenConext\EngineBlockBundle\Doctrine\Type\LegacyJsonType;
 use OpenConext\EngineBlockBundle\Doctrine\Type\SerializedArrayType;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 
 /**
  * @package OpenConext\EngineBlock\Metadata\Entity
@@ -126,7 +126,7 @@ class IdentityProvider extends AbstractRole
             Constants::NAMEID_PERSISTENT,
         ),
         bool $requestsMustBeSigned = false,
-        string $signatureMethod = XMLSecurityKey::RSA_SHA256,
+        string $signatureMethod = XmlSecurityConstants::SIG_RSA_SHA256,
         string $workflowState = self::WORKFLOW_STATE_DEFAULT,
         string $manipulation = '',
         bool $enabledInWayf = true,

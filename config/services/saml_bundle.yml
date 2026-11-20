@@ -1,0 +1,59 @@
+# EngineBlock adapters around the SurfnetSamlBundle. Corto reaches the public services through its DI facade.
+services:
+    _defaults:
+        public: true
+
+    OpenConext\EngineBlock\Saml2\Bundle\ServiceProviderRepositoryAdapter:
+        public: false
+        arguments:
+            - '@OpenConext\EngineBlock\Metadata\MetadataRepository\MetadataRepositoryInterface'
+
+    OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy:
+        arguments:
+            - '%forbidden_signature_methods%'
+
+    OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier:
+        public: false
+        arguments:
+            - '@surfnet_saml.saml2.keyloader'
+            - '@logger'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
+
+    OpenConext\EngineBlock\Saml2\Bundle\VerifiedResponseProcessor:
+        arguments:
+            - '@surfnet_saml.saml2.response_processor'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\ResponseEnvelopeVerifier'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
+
+    OpenConext\EngineBlock\Saml2\Bundle\PolicyCheckingAssertionDecrypter:
+        public: false
+        decorates: surfnet_saml.saml2.assertion_decrypter
+        arguments:
+            - '@engineblock.saml_bundle.default_key_assertion_decrypter'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
+
+    # Local identities use the bundle's local decrypter. Agent identities can decrypt only with the default key.
+    engineblock.saml_bundle.default_key_assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter
+        public: false
+        arguments:
+            - '@surfnet_saml.saml2.local_assertion_decrypter'
+            - !service_closure '@engineblock.saml_bundle.default_key_decryption_key_map'
+            - '@logger'
+
+    engineblock.saml_bundle.default_key_decryption_key_map:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\KeyMap
+        public: false
+        factory: ['OpenConext\EngineBlock\Saml2\Bundle\DefaultKeyDecryptionKeyMap', 'create']
+        arguments:
+            - '%encryption_keys%'
+
+    OpenConext\EngineBlock\Saml2\Bundle\RedirectSignatureVerifier:
+        arguments:
+            - '@logger'
+            - '@OpenConext\EngineBlock\Saml2\Bundle\SignatureAlgorithmPolicy'
+
+    OpenConext\EngineBlock\Saml2\Bundle\SignerFactory:
+
+    OpenConext\EngineBlock\Saml2\Bundle\UnsignedRedirectEncoder:

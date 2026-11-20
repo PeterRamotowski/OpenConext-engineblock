@@ -18,7 +18,7 @@
 
 namespace OpenConext\EngineBlock\Metadata;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use SimpleSAML\XMLSecurity\Constants as XmlSecurityConstants;
 
 /**
  * @SuppressWarnings(PHPMD.ExcessiveParameterList)
@@ -238,7 +238,7 @@ class Coins
 
     public function signatureMethod()
     {
-        return $this->getValue('signatureMethod', XMLSecurityKey::RSA_SHA256);
+        return $this->getValue('signatureMethod', XmlSecurityConstants::SIG_RSA_SHA256);
     }
 
     public function collabEnabled(): bool

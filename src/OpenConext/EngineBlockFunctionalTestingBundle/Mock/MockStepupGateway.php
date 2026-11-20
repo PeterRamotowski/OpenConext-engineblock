@@ -19,20 +19,35 @@ namespace OpenConext\EngineBlockFunctionalTestingBundle\Mock;
 
 use DateInterval;
 use DateTime;
+use EngineBlock_ApplicationSingleton;
+use EngineBlock_Saml2_AuthnRequestAnnotationDecorator;
+use EngineBlock_Saml2_ResponseAnnotationDecorator;
 use LogicException;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Fixtures\FunctionalTestingStepupGatewayMockConfiguration;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\HttpBinding;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\Response;
+use OpenConext\EngineBlockFunctionalTestingBundle\Saml2\XmlSecurity;
 use RuntimeException;
-use SAML2\Assertion;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\Response;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\NameID;
-use SAML2\XML\saml\SubjectConfirmation;
-use SAML2\XML\saml\SubjectConfirmationData;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\EntityIDValue;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\Audience;
+use SimpleSAML\SAML2\XML\saml\AudienceRestriction;
+use SimpleSAML\SAML2\XML\saml\AuthenticatingAuthority;
+use SimpleSAML\SAML2\XML\saml\AuthnContext;
+use SimpleSAML\SAML2\XML\saml\AuthnContextClassRef;
+use SimpleSAML\SAML2\XML\saml\AuthnStatement;
+use SimpleSAML\SAML2\XML\saml\Conditions;
+use SimpleSAML\SAML2\XML\saml\Subject;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmation;
+use SimpleSAML\SAML2\XML\saml\SubjectConfirmationData;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest;
+use SimpleSAML\SAML2\XML\samlp\Response as SamlResponse;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSchema\Type\IDValue;
+use SimpleSAML\XMLSchema\Type\NCNameValue;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -68,7 +83,8 @@ class MockStepupGateway
      */
     public function __construct(
         FunctionalTestingStepupGatewayMockConfiguration $gatewayConfiguration,
-        $sfoRolloverEntityId
+        $sfoRolloverEntityId,
+        private readonly EngineBlock_ApplicationSingleton $application
     ) {
         $this->gatewayConfiguration = $gatewayConfiguration;
         $this->currentTime = new DateTime();
@@ -87,7 +103,7 @@ class MockStepupGateway
         $authnRequest = $this->parseRequest($request, $fullRequestUri);
 
         // get parameters from authnRequest
-        $nameId = $authnRequest->getNameId()->getValue();
+        $nameId = $authnRequest->getNameId()->getContent()->getValue();
         $destination = $authnRequest->getAssertionConsumerServiceURL();
         $authnContextClassRef = current($authnRequest->getRequestedAuthnContext()['AuthnContextClassRef']);
         $requestId = $authnRequest->getId();
@@ -113,7 +129,7 @@ class MockStepupGateway
         $authnRequest = $this->parseRequest($request, $fullRequestUri);
 
         // get parameters from authnRequest
-        $nameId = $authnRequest->getNameId()->getValue();
+        $nameId = $authnRequest->getNameId()->getContent()->getValue();
         $destination = $authnRequest->getAssertionConsumerServiceURL();
         $authnContextClassRef = 'https://gateway.tld/authentication/loa2';
         $requestId = $authnRequest->getId();
@@ -174,7 +190,7 @@ class MockStepupGateway
     /**
      * @param string $samlRequest
      * @param string $fullRequestUri
-     * @return SAML2AuthnRequest
+     * @return EngineBlock_Saml2_AuthnRequestAnnotationDecorator
      * @throws \Exception
      */
     private function parseRequest(Request $request, $fullRequestUri)
@@ -207,17 +223,18 @@ class MockStepupGateway
         $document = DOMDocumentFactory::fromString($samlRequest);
 
         // 2. Parse saml request
-        $authnRequest = Message::fromXML($document->firstChild);
-
-        if (!$authnRequest instanceof SAML2AuthnRequest) {
+        if ($document->documentElement?->localName !== 'AuthnRequest') {
             throw new RuntimeException(sprintf(
                 'The received request is not an AuthnRequest, "%s" received instead',
-                substr(get_class($authnRequest), strrpos(get_class($authnRequest), '_') + 1)
+                $document->documentElement?->localName
             ));
         }
+        $authnRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator(
+            AuthnRequest::fromXML($document->documentElement)
+        );
 
         // 3. Validate destination
-        if (!$authnRequest->getDestination() === $fullRequestUri) {
+        if ($authnRequest->getDestination() !== $fullRequestUri) {
             throw new BadRequestHttpException(sprintf(
                 'Actual Destination "%s" does not match the AuthnRequest Destination "%s"',
                 $fullRequestUri,
@@ -226,26 +243,37 @@ class MockStepupGateway
         }
 
         // 4. Validate issuer
-        if (!$this->gatewayConfiguration->getServiceProviderEntityId() === $authnRequest->getIssuer()) {
+        $features = $this->application->getDiContainer()->getFeatureConfiguration();
+        $expectedIssuer = $features->isEnabled('eb.stepup.sfo.override_engine_entityid')
+            ? $this->sfoRolloverEntityId
+            : $this->gatewayConfiguration->getServiceProviderEntityId();
+        if ($expectedIssuer !== $authnRequest->getIssuerValue()) {
             throw new BadRequestHttpException(sprintf(
                 'Actual issuer "%s" does not match the AuthnRequest Issuer "%s"',
-                $this->gatewayConfiguration->getServiceProviderEntityId(),
-                $authnRequest->getIssuer()->getValue()
+                $expectedIssuer,
+                $authnRequest->getIssuerValue()
             ));
         }
 
-        // 5. Validate key
-        // Note: $authnRequest->validate throws an Exception when the signature does not match.
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, array('type' => 'public'));
-        $key->loadKey($this->gatewayConfiguration->getIdentityProviderPublicKeyCertData());
-
+        // 5. Validate the signature of the query (SAML bindings 3.4.4.1)
         // The query string to validate needs to be urlencoded again because Symfony has already decoded this for us
         $query = self::PARAMETER_REQUEST . '=' . urlencode($requestData);
         $query .= '&' . self::PARAMETER_SIGNATURE_ALGORITHM . '=' . urlencode($request->query->getString(self::PARAMETER_SIGNATURE_ALGORITHM));
 
         $signature = base64_decode($request->query->getString(self::PARAMETER_SIGNATURE));
 
-        if (!$key->verifySignature($query, $signature)) {
+        // EngineBlock signs Stepup requests with its default key. The mock's key signs only its responses.
+        $keys = $this->application->getDiContainer()->getEncryptionKeysConfiguration();
+        $certificate = file_get_contents($keys['default']['publicFile']);
+        if ($certificate === false) {
+            throw new RuntimeException('Unable to read the EngineBlock signing certificate');
+        }
+        if (!XmlSecurity::verifyRedirectSignature(
+            $query,
+            $signature,
+            $certificate,
+            Constants::SIG_RSA_SHA256
+        )) {
             throw new BadRequestHttpException(
                 'Validation of the signature in the AuthnRequest failed'
             );
@@ -260,28 +288,19 @@ class MockStepupGateway
      */
     public function parsePostResponse(Response $response)
     {
-        return $response->toUnsignedXML()->ownerDocument->saveXML();
+        return $response->toXml();
     }
 
     /**
      * @param string $destination The ACS location
      * @param string $requestId The requestId
-     * @param string $status The response status (see \SAML2\Constants)
-     * @param string|null $subStatus An optional substatus (see \SAML2\Constants)
+     * @param string $status The response status (see \SimpleSAML\SAML2\Constants)
+     * @param string|null $subStatus An optional substatus (see \SimpleSAML\SAML2\Constants)
      * @param string|null $message The textual message
      * @return Response
      */
     private function createFailureResponse($destination, $requestId, $status, $subStatus = null, $message = null)
     {
-        $response = new Response();
-        $response->setDestination($destination);
-        $issuer = new Issuer();
-        $issuer->setValue($this->gatewayConfiguration->getIdentityProviderEntityId());
-        $response->setIssuer($issuer);
-        $response->setIssueInstant($this->getTimestamp());
-        $response->setInResponseTo($requestId);
-
-
         if (!$this->isValidResponseStatus($status)) {
             throw new LogicException(sprintf('Trying to set invalid Response Status'));
         }
@@ -298,9 +317,20 @@ class MockStepupGateway
             $status['Message'] = $message;
         }
 
-        $response->setStatus($status);
+        return new Response($this->createSamlResponse($destination, $requestId, $status, []));
+    }
 
-        return $response;
+    private function createSamlResponse($destination, $requestId, array $status, array $assertions): SamlResponse
+    {
+        return new SamlResponse(
+            id: IDValue::fromString(HttpBinding::generateId()),
+            status: EngineBlock_Saml2_ResponseAnnotationDecorator::createStatus($status),
+            issueInstant: Saml2Value::dateTime($this->getTimestamp()),
+            issuer: Saml2Value::issuer($this->gatewayConfiguration->getIdentityProviderEntityId()),
+            inResponseTo: NCNameValue::fromString($requestId),
+            destination: $destination === null ? null : SAMLAnyURIValue::fromString($destination),
+            assertions: $assertions,
+        );
     }
 
     /**
@@ -311,16 +341,11 @@ class MockStepupGateway
      */
     private function createNewAuthnResponse(Assertion $newAssertion, $destination, $requestId)
     {
-        $response = new Response();
-        $response->setAssertions([$newAssertion]);
-        $issuer = new Issuer();
-        $issuer->setValue($this->gatewayConfiguration->getIdentityProviderEntityId());
-        $response->setIssuer($issuer);
-        $response->setIssueInstant($this->getTimestamp());
-        $response->setDestination($destination);
-        $response->setInResponseTo($requestId);
+        $response = new Response(
+            $this->createSamlResponse($destination, $requestId, ['Code' => Constants::STATUS_SUCCESS], [$newAssertion])
+        );
 
-        return $response;
+        return $this->signAssertion($response);
     }
 
     /**
@@ -333,59 +358,67 @@ class MockStepupGateway
      */
     private function createNewAssertion($nameId, $authnContextClassRef, $destination, $requestId, $updateAudience = false)
     {
-        $newAssertion = new Assertion();
-        $newAssertion->setNotBefore($this->currentTime->getTimestamp());
-        $newAssertion->setNotOnOrAfter($this->getTimestamp('PT5M'));
-        $issuer = new Issuer();
-        $issuer->setValue($this->gatewayConfiguration->getIdentityProviderEntityId());
-        $newAssertion->setIssuer($issuer);
-        $newAssertion->setIssueInstant($this->getTimestamp());
-        $this->signAssertion($newAssertion);
-        $this->addSubjectConfirmationFor($newAssertion, $destination, $requestId);
-        $newNameId = new NameID();
-        $newNameId->setValue($nameId);
-        $newNameId->setFormat(Constants::NAMEID_UNSPECIFIED);
-        $newAssertion->setNameId($newNameId);
-        $audiences = [$this->gatewayConfiguration->getServiceProviderEntityId()];
+        $notOnOrAfter = Saml2Value::dateTime($this->getTimestamp('PT5M'));
+        $audience = $this->gatewayConfiguration->getServiceProviderEntityId();
         // If the entity id being updated, then set that new EntityId as the audience for this assertion
         if ($updateAudience) {
-            $audiences = [$this->sfoRolloverEntityId];
+            $audience = $this->sfoRolloverEntityId;
         }
-        $newAssertion->setValidAudiences($audiences);
-        $this->addAuthenticationStatementTo($newAssertion, $authnContextClassRef);
 
-        return $newAssertion;
+        return new Assertion(
+            issuer: Saml2Value::issuer($this->gatewayConfiguration->getIdentityProviderEntityId()),
+            issueInstant: Saml2Value::dateTime($this->getTimestamp()),
+            id: IDValue::fromString(HttpBinding::generateId()),
+            subject: new Subject(
+                Saml2Value::nameId($nameId, Constants::NAMEID_UNSPECIFIED),
+                [$this->createSubjectConfirmation($destination, $requestId, $notOnOrAfter)]
+            ),
+            conditions: new Conditions(
+                notBefore: Saml2Value::dateTime($this->currentTime->getTimestamp()),
+                notOnOrAfter: $notOnOrAfter,
+                audienceRestriction: [
+                    new AudienceRestriction([new Audience(SAMLAnyURIValue::fromString($audience))]),
+                ],
+            ),
+            statements: [$this->createAuthenticationStatement($authnContextClassRef)],
+        );
     }
 
     /**
-     * @param Assertion $newAssertion
      * @param string $destination The ACS location
      * @param string $requestId The requestId
      */
-    private function addSubjectConfirmationFor(Assertion $newAssertion, $destination, $requestId)
+    private function createSubjectConfirmation($destination, $requestId, $notOnOrAfter): SubjectConfirmation
     {
-        $confirmation = new SubjectConfirmation();
-        $confirmation->setMethod(Constants::CM_BEARER);
-
-        $confirmationData = new SubjectConfirmationData();
-        $confirmationData->setInResponseTo($requestId);
-        $confirmationData->setRecipient($destination);
-        $confirmationData->setNotOnOrAfter($newAssertion->getNotOnOrAfter());
-
-        $confirmation->setSubjectConfirmationData($confirmationData);
-
-        $newAssertion->setSubjectConfirmation([$confirmation]);
+        return new SubjectConfirmation(
+            SAMLAnyURIValue::fromString(Constants::CM_BEARER),
+            null,
+            new SubjectConfirmationData(
+                notOnOrAfter: $notOnOrAfter,
+                recipient: $destination === null ? null : EntityIDValue::fromString($destination),
+                inResponseTo: NCNameValue::fromString($requestId),
+            ),
+        );
     }
 
     /**
-     * @param Assertion $assertion
-     * @param $authnContextClassRef
+     * @param string|null $authnContextClassRef
      */
-    private function addAuthenticationStatementTo(Assertion $assertion, $authnContextClassRef)
+    private function createAuthenticationStatement($authnContextClassRef): AuthnStatement
     {
-        $assertion->setAuthnInstant($this->getTimestamp());
-        $assertion->setAuthnContextClassRef($authnContextClassRef);
-        $assertion->setAuthenticatingAuthority([$this->gatewayConfiguration->getIdentityProviderEntityId()]);
+        return new AuthnStatement(
+            new AuthnContext(
+                $authnContextClassRef ? new AuthnContextClassRef(SAMLAnyURIValue::fromString($authnContextClassRef)) : null,
+                null,
+                null,
+                [
+                    new AuthenticatingAuthority(
+                        EntityIDValue::fromString($this->gatewayConfiguration->getIdentityProviderEntityId())
+                    ),
+                ],
+            ),
+            Saml2Value::dateTime($this->getTimestamp()),
+        );
     }
 
     /**
@@ -403,35 +436,12 @@ class MockStepupGateway
         return $time->getTimestamp();
     }
 
-    /**
-     * @param Assertion $assertion
-     * @return Assertion
-     */
-    private function signAssertion(Assertion $assertion)
+    private function signAssertion(Response $response): Response
     {
-        $assertion->setSignatureKey($this->loadPrivateKey());
-        $assertion->setCertificates([$this->getPublicCertificate()]);
-
-        return $assertion;
-    }
-
-    /**
-     * @return XMLSecurityKey
-     */
-    private function loadPrivateKey()
-    {
-        $xmlSecurityKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $xmlSecurityKey->loadKey($this->gatewayConfiguration->getIdentityProviderGetPrivateKeyPem());
-
-        return $xmlSecurityKey;
-    }
-
-    /**
-     * @return string
-     */
-    private function getPublicCertificate()
-    {
-        return $this->gatewayConfiguration->getIdentityProviderPublicKeyCertData();
+        return $response->setAssertionSigner(
+            XmlSecurity::signer($this->gatewayConfiguration->getIdentityProviderGetPrivateKeyPem()),
+            XmlSecurity::keyInfo($this->gatewayConfiguration->getIdentityProviderPublicKeyCertData())
+        );
     }
 
     private function isValidResponseStatus($status)

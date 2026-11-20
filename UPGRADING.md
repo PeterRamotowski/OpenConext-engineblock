@@ -1,5 +1,53 @@
 # UPGRADE NOTES
 
+## Unreleased
+
+EngineBlock now uses saml2 v7 for its SAML messages. Session state written by earlier releases cannot be used: users
+who are in the middle of a login during the upgrade must restart it.
+
+- **Release blocker.** Replace the pinned Stepup SAML bundle fork with an official OpenConext release that supports
+  SAML2 v7, and remove the fork repository from Composer. Upgrade the pinned SAML2 release candidate to a validated
+  stable 7.x release that includes the typed attribute value fixes, then remove the local patch.
+- Add `session_cookie_name` to `parameters.yaml`, suggested value: `engineblock_session_v7`. Earlier releases used the
+  fixed cookie name `main`.
+- The upgrade, a rollback and every roll forward require separate or purged session storage. The upgrade and every
+  roll forward also require a fresh cookie name; a rollback keeps `main`. PHP deserializes session data before
+  EngineBlock can check it, so a new cookie name alone does not keep releases apart. See
+  [docs/session_cutover.md](docs/session_cutover.md).
+- In Manage, migrate IdP and SP attribute manipulations that use `SAML2\` classes or setters on `getAssertion()`.
+  Use `$responseObj` setters and assign `\OpenConext\EngineBlock\Saml2\Message\Saml2Value::nameId($value, $format)`
+  to `$response['__']['CustomNameId']` for NameID overrides. `$requestObj->getDestination()` now returns the full URL.
+- EngineBlock verifies every AuthnRequest signature and rejects RSA-SHA1 by default. Move affected partners and
+  Manage settings to RSA-SHA2. Redirect verification and outgoing signing require RSA-SHA256, RSA-SHA384 or RSA-SHA512.
+- Signed AuthnRequests require a `Destination`. If supplied, it must exactly match the configured base or routed SSO URL.
+- Outgoing authentication requests accept one response from the intended IdP at the intended ACS. They expire after
+  300 seconds by default. Set `saml_request_lifetime_seconds` to a positive value to change the limit.
+- Every `RequesterID` in an AuthnRequest must be an absolute URI. A malformed value now rejects the request.
+  An unknown but well-formed `RequesterID` is still ignored for WAYF scoping.
+- Metadata pushes require absolute URIs for MFA methods, `defaultRAC` and Stepup LoAs. The
+  `transparent_authn_context` setting still forwards the SP's context.
+- A successful response to an AuthnRequest must include a bearer confirmation with `Recipient` set to the
+  expected ACS and `InResponseTo` matching the request ID. IdPs that omit either value must update their response.
+  Reloading a consent page that resubmits the IdP response requires restarting the login.
+- `encryption_keys` entries are validated when the container is built: every key needs `publicFile`, local keys need
+  `privateFile`, and unknown fields are rejected. Configure the SAML bundle through `encryption_keys` and
+  `private_key_agent` only; `surfnet_saml.hosted` and `surfnet_saml.private_key_agent` must not be set.
+- Optional Private Key Agent: set `backend: agent` on a key to let the agent hold its private key. Such a key has no
+  `privateFile`, and its `agent` section names the agent key, its bearer token and its operations. Every agent key
+  needs `sign`; only the `default` key may add `decrypt`, because only that key decrypts received assertions. Set
+  `private_key_agent.base_url` (and optionally `timeout`, `max_duration` and `allow_insecure_http`) when a key uses
+  the agent. See `config/packages/parameters.yml.dist`.
+  - Run `bin/console surfnet:saml:validate-private-key-agent` once the certificates are mounted; cache warmup needs
+    neither private keys, certificates nor tokens. Tokens are only resolved for agent operations. Rebuild the
+    container cache after changing a key's backend.
+  - An agent failure fails the login or metadata request with the generic error page. There are no retries and no
+    fallback to a local key.
+  - With an agent `default` key, encrypted assertions must use `xmlenc#rsa-oaep-mgf1p` or `xmlenc11#rsa-oaep` with
+    explicit `DigestMethod` and `MGF` parameters; parameterless `xmlenc11#rsa-oaep` is rejected before the agent is
+    called. A local `default` key still decrypts it.
+  - Replacing the `default` key is a coordinated change of the decryption identity: EngineBlock never decrypts with
+    another key ID. Signing and metadata rollover work as before by adding a key ID.
+
 ## 7.2.0
 
 Engineblock is now upgraded to Symfony 7.4 and requires PHP 8.5. Older PHP versions might work, but have not been tested.

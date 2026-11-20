@@ -139,9 +139,7 @@ Feature:
   Scenario: The Service Provider can replace the NameID by setting the CustomNameID with an object representation of the NameID
     Given SP "SP-with-Attribute-Manipulations" has the following Attribute Manipulation:
       """
-      $nameId = new \SAML2\XML\saml\NameID();
-      $nameId->setFormat('urn:oasis:names:tc:SAML:2.0:nameid-format:transient');
-      $nameId->setValue('MIES');
+      $nameId = \OpenConext\EngineBlock\Saml2\Message\Saml2Value::nameId('MIES', 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient');
       $response['__']['CustomNameId'] = $nameId;
       """
      And SP "SP-with-Attribute-Manipulations" uses the Unspecified NameID format
@@ -207,7 +205,7 @@ Feature:
     When I give my consent
      And I pass through EngineBlock
     Then the url should match "functional-testing/SP-with-Attribute-Manipulations/acs"
-    And the response should match xpath '/samlp:Response/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="urn:mace:dir:attribute-def:uid"]/saml:AttributeValue[text()="/authentication/idp/single-sign-on"]'
+    And the response should match xpath '/samlp:Response/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="urn:mace:dir:attribute-def:uid"]/saml:AttributeValue[text()="https://engine.dev.openconext.local/authentication/idp/single-sign-on"]'
 
   Scenario: The manipulation reduces a multivalued attribute to a single value
     Given the IdP "Dummy-IdP" sends attribute "urn:mace:dir:attribute-def:eduPersonAffiliation" with values "student,faculty,guest,member" and xsi:type is "xs:string"

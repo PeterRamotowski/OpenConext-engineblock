@@ -85,7 +85,7 @@ class EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSchacHomeOrganis
      */
     private function resolveSchacHomeOrganization()
     {
-        $attributes = $this->_response->getAssertion()->getAttributes();
+        $attributes = $this->_response->getAttributes();
 
         if (isset($attributes[self::SCHAC_HOME_ORGANIZATION_URN_MACE])) {
             return reset($attributes[self::SCHAC_HOME_ORGANIZATION_URN_MACE]);

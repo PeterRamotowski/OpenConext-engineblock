@@ -31,7 +31,7 @@
             {% if return is defined and return %}
                 <input type="hidden" name="return" value="{{ return }}">
             {% endif %}
-            {% if relayState is defined and relayState %}
+            {% if relayState is defined and relayState is not empty %}
                 <input type="hidden" name="RelayState" value="{{ relayState }}">
             {% endif %}
             <noscript>

@@ -1,0 +1,8 @@
+# The surfnet_saml bundle configuration is derived from the "encryption_keys" and "private_key_agent" parameters by
+# OpenConext\EngineBlockBundle\DependencyInjection\OpenConextEngineBlockExtension; do not configure the hosted or
+# private_key_agent sections here.
+#
+# The bundle's hosted identity provider mirrors EngineBlock's IdP identity: its entityID (metadata URL), SSO
+# endpoint and "default" key. It is enabled so the bundle's incoming request bindings look up SPs in EngineBlock's
+# metadata repository. EngineBlock keeps serving its own metadata, routes and firewalls; the bundle registers none
+# of these (enable_authentication stays false).

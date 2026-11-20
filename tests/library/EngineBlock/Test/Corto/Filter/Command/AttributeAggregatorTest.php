@@ -28,9 +28,6 @@ use OpenConext\EngineBlockBundle\AttributeAggregation\Dto\Response;
 use OpenConext\EngineBlock\Http\Exception\HttpException;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response as SAMLResponse;
 
 #[\PHPUnit\Framework\Attributes\Group('AttributeAggregation')]
 class EngineBlock_Test_Corto_Filter_Command_AttributeAggregatorTest extends TestCase
@@ -84,14 +81,8 @@ class EngineBlock_Test_Corto_Filter_Command_AttributeAggregatorTest extends Test
         $this->repository->shouldReceive('findServiceProviderByEntityId')
             ->andReturn($this->sp);
 
-        $assertion = new Assertion();
-
-        $request = new AuthnRequest();
-        $response = new SAMLResponse();
-        $response->setAssertions(array($assertion));
-
-        $this->request = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($request);
-        $this->response = new EngineBlock_Saml2_ResponseAnnotationDecorator($response);
+        $this->request = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest();
+        $this->response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse();
     }
 
     public function testAggregatorNotCalledWhenAggregationIsDisabled()

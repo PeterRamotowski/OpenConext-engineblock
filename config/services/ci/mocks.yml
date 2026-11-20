@@ -34,3 +34,4 @@ services:
         arguments:
             - "@engineblock.functional_testing.fixture.stepup_gateway_mock"
             - '%stepup.sfo.override_engine_entityid%'
+            - '@engineblock.compat.application'

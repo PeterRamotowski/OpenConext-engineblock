@@ -27,10 +27,6 @@ use OpenConext\EngineBlock\Service\ProcessingStateHelper;
 use OpenConext\EngineBlock\Service\ProcessingStateHelperInterface;
 use OpenConext\EngineBlockBundle\Authentication\AuthenticationStateInterface;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\AuthnRequest;
-use SAML2\Response;
-use SAML2\XML\saml\Issuer;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
@@ -193,12 +189,7 @@ class EngineBlock_Test_Corto_Module_Service_ProcessConsentTest extends TestCase
 
         // Stub getReceivedRequestFromResponse so tests do not depend on DI-wired
         // AuthnRequestSessionRepository being populated during the test.
-        $spRequest = new AuthnRequest();
-        $spRequest->setId('SPREQUEST');
-        $issuer = new Issuer();
-        $issuer->setValue('https://sp.example.edu');
-        $spRequest->setIssuer($issuer);
-        $decoratedSpRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($spRequest);
+        $decoratedSpRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'SPREQUEST', 'issuer' => 'https://sp.example.edu']);
 
         Phake::when($proxyServerMock)
             ->getReceivedRequestFromResponse(Phake::anyParameters())
@@ -265,21 +256,8 @@ class EngineBlock_Test_Corto_Module_Service_ProcessConsentTest extends TestCase
 
     private function mockSspResponse()
     {
-        $assertion = new Assertion();
-        $assertion->setAttributes(array(
-            'urn:mace:dir:attribute-def:mail' => 'test@test.test'
-        ));
-
-        $spRequest = new AuthnRequest();
-        $spRequest->setId('SPREQUEST');
-        $issuer = new Issuer();
-        $issuer->setValue('https://sp.example.edu');
-        $spRequest->setIssuer($issuer);
-        $spRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($spRequest);
-
-        $ebRequest = new AuthnRequest();
-        $ebRequest->setId('EBREQUEST');
-        $ebRequest = new EngineBlock_Saml2_AuthnRequestAnnotationDecorator($ebRequest);
+        $spRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'SPREQUEST', 'issuer' => 'https://sp.example.edu']);
+        $ebRequest = EngineBlock_Test_Saml2_MessageFixtures::annotatedAuthnRequest(['id' => 'EBREQUEST']);
 
         $authnRequest = new \Symfony\Component\HttpFoundation\Request();
         $authnRequest->setSession(new Session(new MockArraySessionStorage()));
@@ -289,11 +267,10 @@ class EngineBlock_Test_Corto_Module_Service_ProcessConsentTest extends TestCase
         $authnRequestRepository->store($ebRequest);
         $authnRequestRepository->link($ebRequest, $spRequest);
 
-        $sspResponse = new Response();
-        $sspResponse->setInResponseTo('EBREQUEST');
-        $sspResponse->setAssertions(array($assertion));
-
-        $sspResponse = new EngineBlock_Saml2_ResponseAnnotationDecorator($sspResponse);
+        $sspResponse = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse([
+            'inResponseTo' => 'EBREQUEST',
+            'assertion' => ['attributes' => ['urn:mace:dir:attribute-def:mail' => ['test@test.test']]],
+        ]);
         $sspResponse->setOriginalIssuer("https://idp.example.edu");
 
         return $sspResponse;

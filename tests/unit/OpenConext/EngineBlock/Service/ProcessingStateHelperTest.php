@@ -19,7 +19,9 @@
 namespace OpenConext\EngineBlock\Service;
 
 use EngineBlock_Corto_Module_Services_SessionLostException;
+use EngineBlock_Saml2_MessageAnnotationDecorator;
 use EngineBlock_Saml2_ResponseAnnotationDecorator;
+use EngineBlock_Test_Saml2_MessageFixtures;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use OpenConext\EngineBlock\Metadata\Entity\AbstractRole;
@@ -54,7 +56,7 @@ class ProcessingStateHelperTest extends TestCase
     public function it_stores_and_retrieves_a_processing_step(): void
     {
         $role = m::mock(AbstractRole::class);
-        $response = m::mock(EngineBlock_Saml2_ResponseAnnotationDecorator::class);
+        $response = EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse();
 
         $step = $this->helper->addStep('req-1', ProcessingStateHelperInterface::STEP_CONSENT, $role, $response);
 
@@ -78,6 +80,37 @@ class ProcessingStateHelperTest extends TestCase
 
         $this->helper->addStep('req-1', ProcessingStateHelperInterface::STEP_CONSENT, $role, $response);
         $this->helper->clearStepByRequestId('req-1');
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->helper->getStepByRequestId('req-1', ProcessingStateHelperInterface::STEP_CONSENT);
+    }
+
+    #[Test]
+    public function it_treats_a_step_from_another_serialization_format_as_session_lost(): void
+    {
+        $role = m::mock(AbstractRole::class);
+        $current = serialize(EngineBlock_Test_Saml2_MessageFixtures::annotatedResponse());
+        $foreignFormat = str_replace(
+            EngineBlock_Saml2_MessageAnnotationDecorator::SERIALIZATION_FORMAT,
+            'engineblock-saml2-v4/1',
+            $current
+        );
+        self::assertNotSame($current, $foreignFormat);
+        $response = unserialize($foreignFormat);
+        self::assertInstanceOf(EngineBlock_Saml2_ResponseAnnotationDecorator::class, $response);
+
+        $this->helper->addStep('req-1', ProcessingStateHelperInterface::STEP_CONSENT, $role, $response);
+
+        $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
+        $this->helper->getStepByRequestId('req-1', ProcessingStateHelperInterface::STEP_CONSENT);
+    }
+
+    #[Test]
+    public function it_treats_an_unreadable_step_as_session_lost(): void
+    {
+        $this->session->set(ProcessingStateHelper::SESSION_KEY, [
+            'req-1' => [ProcessingStateHelperInterface::STEP_CONSENT => unserialize('O:23:"SAML2_Removed_StateStep":0:{}')],
+        ]);
 
         $this->expectException(EngineBlock_Corto_Module_Services_SessionLostException::class);
         $this->helper->getStepByRequestId('req-1', ProcessingStateHelperInterface::STEP_CONSENT);

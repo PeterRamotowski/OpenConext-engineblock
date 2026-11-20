@@ -19,8 +19,9 @@
 use OpenConext\EngineBlock\Metadata\AttributeReleasePolicy;
 use OpenConext\EngineBlock\Metadata\Entity\ServiceProvider;
 use Psr\Log\LoggerInterface;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
 
 class EngineBlock_Corto_Filter_Command_AddIdentityAttributes extends EngineBlock_Corto_Filter_Command_Abstract
     implements EngineBlock_Corto_Filter_Command_ResponseAttributesModificationInterface
@@ -72,34 +73,16 @@ class EngineBlock_Corto_Filter_Command_AddIdentityAttributes extends EngineBlock
             $this->_server->getRepository()
         );
 
-        $isResolved = false;
-
         $arp = $destinationMetadata->getAttributeReleasePolicy();
-        if (!is_null($arp)) {
-            // Now check if we should update the NameID value according to the 'use_as_nameid' directive in the ARP.
-            $arpSubstitute = $this->substituteResolver->findNameIdSubstitute($arp, $this->getResponseAttributes());
-            if ($arpSubstitute !== null) {
-                $nameId = new NameID();
-                $nameId->setFormat(Constants::NAMEID_UNSPECIFIED);
-                $nameId->setValue($arpSubstitute);
-                $isResolved = true;
-                $this->_response->getAssertion()->setNameId($nameId);
-            }
-        }
+        $arpSubstitute = $arp === null
+            ? null
+            : $this->substituteResolver->findNameIdSubstitute($arp, $this->getResponseAttributes());
 
-        if (!$isResolved || !isset($nameId)){
-            // Resolve what NameID we should send the destination.
-            $resolver = new EngineBlock_Saml2_NameIdResolver($this->logger);
-            $nameId = $resolver->resolve(
-                $this->_request,
-                $this->_response,
-                $destinationMetadata,
-                $this->_collabPersonId
-            );
-
-            $this->logger->info('Setting the NameId on the Assertion');
-            $this->_response->getAssertion()->setNameId($nameId);
-        }
+        $nameId = $arpSubstitute === null
+            ? $this->resolveNameId($destinationMetadata)
+            : Saml2Value::nameId($arpSubstitute, Constants::NAMEID_UNSPECIFIED);
+        $this->logger->info('Setting the NameId on the Assertion');
+        $this->_response->setNameId($nameId);
 
         // If there's an ARP, but it does not contain the EPTI, we're done now.
         if ($arp instanceof AttributeReleasePolicy && !$arp->hasAttribute(Constants::EPTI_URN_MACE)) {

@@ -22,10 +22,8 @@ use Behat\Mink\Exception\ExpectationException;
 use Behat\MinkExtension\Context\MinkContext as BaseMinkContext;
 use DOMDocument;
 use DOMXPath;
-use RobRichards\XMLSecLibs\XMLSecurityDSig;
 use RuntimeException;
-use SAML2\XML\mdui\Common;
-use SAML2\XML\shibmd\Scope;
+use SimpleSAML\SAML2\Constants;
 use function count;
 
 /**
@@ -66,10 +64,10 @@ class MinkContext extends BaseMinkContext
         $document->loadXML($this->getSession()->getPage()->getContent());
 
         $xpathObj = new DOMXPath($document);
-        $xpathObj->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
+        $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
         $xpathObj->registerNamespace('md', 'urn:oasis:names:tc:SAML:2.0:metadata');
-        $xpathObj->registerNamespace('mdui', Common::NS);
-        $xpathObj->registerNamespace('shibmd', Scope::NS);
+        $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
+        $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
         $xpathObj->registerNamespace('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
         $xpathObj->registerNamespace('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
         $nodeList = $xpathObj->query($xpath);
@@ -88,9 +86,11 @@ class MinkContext extends BaseMinkContext
         $document = new DOMDocument();
         $document->loadXML($this->getSession()->getPage()->getContent());
         $xpathObj = new DOMXPath($document);
-        $xpathObj->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpathObj->registerNamespace('mdui', Common::NS);
-        $xpathObj->registerNamespace('shibmd', Scope::NS);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
+        $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
+        $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
+        $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
         $nodeListAttribute = $xpathObj->query(
             '/samlp:Response/saml:Assertion/saml:AttributeStatement/saml:Attribute' .
             '[@Name="urn:mace:surf.nl:attribute-def:internal-collabPersonId"]'
@@ -147,9 +147,11 @@ class MinkContext extends BaseMinkContext
         $document->loadXML($this->getSession()->getPage()->getContent());
 
         $xpathObj = new DOMXPath($document);
-        $xpathObj->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpathObj->registerNamespace('mdui', Common::NS);
-        $xpathObj->registerNamespace('shibmd', Scope::NS);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
+        $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
+        $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
+        $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
         $nodeList = $xpathObj->query(
             '/samlp:Response/saml:Assertion/saml:AttributeStatement/saml:Attribute' .
             '[@Name="urn:mace:surf.nl:attribute-def:internal-collabPersonId"]'
@@ -171,9 +173,11 @@ class MinkContext extends BaseMinkContext
         $document = new DOMDocument();
         $document->loadXML($this->getSession()->getPage()->getContent());
         $xpathObj = new DOMXPath($document);
-        $xpathObj->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpathObj->registerNamespace('mdui', Common::NS);
-        $xpathObj->registerNamespace('shibmd', Scope::NS);
+        $xpathObj->registerNamespace('saml', Constants::NS_SAML);
+        $xpathObj->registerNamespace('samlp', Constants::NS_SAMLP);
+        $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
+        $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
+        $xpathObj->registerNamespace('shibmd', Constants::NS_SHIBMD);
         $nodeListAssertion = $xpathObj->query('/samlp:Response/saml:Assertion[@ID]');
         $nodeListAuthStatement = $xpathObj->query('/samlp:Response/saml:Assertion/saml:AuthnStatement[@SessionIndex]');
 
@@ -204,9 +208,9 @@ class MinkContext extends BaseMinkContext
         $document->loadXML($this->getSession()->getPage()->getContent());
 
         $xpathObj = new DOMXPath($document);
-        $xpathObj->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
+        $xpathObj->registerNamespace('ds', Constants::NS_XDSIG);
         $xpathObj->registerNamespace('md', 'urn:oasis:names:tc:SAML:2.0:metadata');
-        $xpathObj->registerNamespace('mdui', Common::NS);
+        $xpathObj->registerNamespace('mdui', Constants::NS_MDUI);
         $xpathObj->registerNamespace('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
         $xpathObj->registerNamespace('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
         $nodeList = $xpathObj->query($xpath);

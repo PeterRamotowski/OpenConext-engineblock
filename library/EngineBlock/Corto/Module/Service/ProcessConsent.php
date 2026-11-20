@@ -20,8 +20,7 @@ use OpenConext\EngineBlock\Authentication\Value\ConsentType;
 use OpenConext\EngineBlock\Request\CorrelationIdServiceInterface;
 use OpenConext\EngineBlock\Service\AuthenticationStateHelperInterface;
 use OpenConext\EngineBlock\Service\ProcessingStateHelperInterface;
-use SAML2\Constants;
-use SAML2\Response;
+use SimpleSAML\SAML2\Constants;
 use Symfony\Component\HttpFoundation\Request;
 
 class EngineBlock_Corto_Module_Service_ProcessConsent
@@ -90,14 +89,14 @@ class EngineBlock_Corto_Module_Service_ProcessConsent
     {
         $processStep = $this->_processingStateHelper->getStepByRequestId($httpRequest->get('ID'), ProcessingStateHelperInterface::STEP_CONSENT);
 
-        /** @var Response|EngineBlock_Saml2_ResponseAnnotationDecorator $response */
+        /** @var EngineBlock_Saml2_ResponseAnnotationDecorator $response */
         $response = $processStep->getResponse();
 
         $request = $this->_server->getReceivedRequestFromResponse($response);
 
         $this->_correlationIdService->resolve($request->getId());
 
-        $serviceProvider = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuer()->getValue());
+        $serviceProvider = $this->_server->getRepository()->fetchServiceProviderByEntityId($request->getIssuerValue());
 
         $destinationMetadata = EngineBlock_SamlHelper::getDestinationSpMetadata(
             $serviceProvider,
@@ -109,7 +108,7 @@ class EngineBlock_Corto_Module_Service_ProcessConsent
             throw new EngineBlock_Corto_Exception_NoConsentProvided('No consent given...');
         }
 
-        $attributes = $response->getAssertion()->getAttributes();
+        $attributes = $response->getAttributes();
         $consentRepository = $this->_consentFactory->create($this->_server, $response, $attributes);
 
         $explicitConsent = $consentRepository->explicitConsentWasGivenFor($serviceProvider);

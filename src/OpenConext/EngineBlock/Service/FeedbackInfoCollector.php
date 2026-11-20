@@ -56,6 +56,12 @@ class FeedbackInfoCollector implements FeedbackInfoCollectorInterface
             'artCode'    => Art::forException($exception),
         ];
 
+        $claimedIssuer = $request?->attributes->get(FeedbackStateHelperInterface::CLAIMED_SERVICE_PROVIDER_ATTRIBUTE);
+        if (is_string($claimedIssuer)) {
+            $feedbackInfo['serviceProvider'] = $claimedIssuer;
+            return $feedbackInfo;
+        }
+
         $bucket = $this->feedbackStateHelper->getActiveFlowContext();
 
         $spEntityId = $bucket['originalServiceProvider'] ?? $bucket['serviceProvider'] ?? null;

@@ -34,15 +34,22 @@ class EngineBlock_Arp_NameIdSubstituteResolver
     public function findNameIdSubstitute(AttributeReleasePolicy $arp, array $responseAttributes): ?string
     {
         $substituteAttribute = $arp->findNameIdSubstitute();
-        if ($substituteAttribute !== null && array_key_exists($substituteAttribute, $responseAttributes)) {
-            $this->logger->notice(
-                sprintf(
-                    'Found a NameId substitute ("use_as_nameid", %s will be used as NameID)',
-                    $substituteAttribute
-                )
-            );
-            return reset($responseAttributes[$substituteAttribute]);
+        if ($substituteAttribute === null || !array_key_exists($substituteAttribute, $responseAttributes)) {
+            return null;
         }
-        return null;
+
+        $values = $responseAttributes[$substituteAttribute];
+        $substitute = is_array($values) ? reset($values) : null;
+        if (!is_string($substitute) || trim($substitute) === '') {
+            $this->logger->warning('Ignoring a NameID substitute without a non-empty string value', [
+                'attribute' => $substituteAttribute,
+            ]);
+            return null;
+        }
+
+        $this->logger->notice(
+            sprintf('Found a NameId substitute ("use_as_nameid", %s will be used as NameID)', $substituteAttribute)
+        );
+        return $substitute;
     }
 }

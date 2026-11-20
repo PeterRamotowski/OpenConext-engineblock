@@ -82,7 +82,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         $serviceEntityId = $this->determineRemoteSpEntityId();
         $expectedDestination = $this->_server->getUrl('stepupAssertionConsumerService');
 
-        $checkResponseSignature = true;
+        $logResponseSignature = true;
         try {
             $receivedResponse = $this->_server->getBindingsModule()->receiveResponse($serviceEntityId, $expectedDestination);
             $receivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
@@ -94,7 +94,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             $this->verifyReceivedLoa($receivedRequest, $receivedResponse, $log);
 
             // Update the AuthnContextClassRef to the loa returned
-            $receivedLoa = $this->_stepupGatewayCallOutHelper->getEbLoa($receivedResponse->getAssertion()->getAuthnContextClassRef());
+            $receivedLoa = $this->_stepupGatewayCallOutHelper->getEbLoa($receivedResponse->getAuthnContextClassRef());
             $this->updateProcessingStateLoa($receivedRequest, $receivedResponse, $receivedLoa);
 
             $log->warning('After Stepup authentication update received LoA', ['result' => $receivedLoa]);
@@ -107,7 +107,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             $receivedResponse = $e->getResponse();
             $receivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
 
-            $checkResponseSignature = false; // error responses from gateway are not signed
+            $logResponseSignature = false; // error responses from gateway are not signed
 
             // Update the AuthnContextClassRef to LoA 1
             $mappedLoa = $this->_stepupGatewayCallOutHelper->getStepupLoa1();
@@ -117,14 +117,14 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
 
         $application->getDiContainerRuntime()->correlationIdService->resolve($receivedRequest->getId());
 
-        if ($checkResponseSignature) {
-            $this->_server->checkResponseSignatureMethods($receivedResponse);
+        if ($logResponseSignature) {
+            $this->_server->logResponseSignatureMethods($receivedResponse);
         }
 
         // Verify the SP requester chain.
         // Retrieve the SP again to verify the requester chain. This verification step requires the furthest in chain SP
         // first, thats why the self::getSp method is not used here.
-        $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($receivedRequest->getIssuer()->getValue());
+        $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($receivedRequest->getIssuerValue());
         EngineBlock_SamlHelper::getSpRequesterChain(
             $sp,
             $receivedRequest,
@@ -138,7 +138,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         $originalReceivedResponse = $processStep->getResponse();
 
         // Only non-error responses will have a NameID in them
-        if ($checkResponseSignature) {
+        if ($logResponseSignature) {
             $this->verifyReceivedNameID($originalReceivedResponse, $receivedResponse);
         }
 
@@ -148,12 +148,11 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             return;
         }
 
-        $nextProcessStep = $this->_processingStateHelper->getStepByRequestId(
-            $receivedRequest->getId(),
-            ProcessingStateHelperInterface::STEP_CONSENT
+        $this->_server->sendConsentAuthenticationRequest(
+            $originalReceivedResponse,
+            $receivedRequest,
+            $this->getAuthenticationState()
         );
-
-        $this->_server->sendConsentAuthenticationRequest($originalReceivedResponse, $receivedRequest, $nextProcessStep->getRole(), $this->getAuthenticationState());
     }
 
     /**
@@ -220,7 +219,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
                 $originalReceivedResponse = $processStep->getResponse();
                 $originalReceivedRequest = $this->_server->getReceivedRequestFromResponse($receivedResponse);
 
-                $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId($originalReceivedResponse->getIssuer()->getValue());
+                $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId($originalReceivedResponse->getIssuerValue());
                 $sp = $this->getSp($originalReceivedRequest, $log);
 
                 if ($this->_stepupGatewayCallOutHelper->allowNoToken($idp, $sp)) {
@@ -254,7 +253,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
      */
     private function getSp(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $receivedRequest, LoggerInterface $log)
     {
-        $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($receivedRequest->getIssuer()->getValue());
+        $sp = $this->_server->getRepository()->fetchServiceProviderByEntityId($receivedRequest->getIssuerValue());
 
         // When dealing with an SP that acts as a trusted proxy, we should use the proxying SP and not the proxy itself.
         if ($sp->getCoins()->isTrustedProxy()) {
@@ -274,7 +273,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
     private function updateProcessingStateLoa(EngineBlock_Saml2_AuthnRequestAnnotationDecorator $receivedRequest, EngineBlock_Saml2_ResponseAnnotationDecorator $receivedResponse, Loa $loa)
     {
         $processStep = $this->_processingStateHelper->getStepByRequestId($receivedRequest->getId(), ProcessingStateHelperInterface::STEP_STEPUP);
-        $processStep->getResponse()->getAssertion()->setAuthnContextClassRef($loa->getIdentifier());
+        $processStep->getResponse()->setAuthnContextClassRef($loa->getIdentifier());
         $this->_processingStateHelper->updateStepResponseByRequestId($receivedRequest->getId(), ProcessingStateHelperInterface::STEP_STEPUP, $processStep->getResponse());
     }
 
@@ -301,7 +300,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
             ProcessingStateHelperInterface::STEP_STEPUP
         )->getResponse();
         $idp = $this->_server->getRepository()->fetchIdentityProviderByEntityId(
-            $originalResponse->getIssuer()->getValue()
+            $originalResponse->getIssuerValue()
         );
 
         $pdpLoas = $originalResponse->getPdpRequestedLoas();
@@ -310,7 +309,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         $stepupDecision = new StepupDecision($idp, $sp, $authnRequestLoas, $pdpLoas, $this->_loaRepository, $log);
         $requiredLoa = $stepupDecision->getStepupLoa();
         $receivedLoa = $this->_stepupGatewayCallOutHelper->getEbLoa(
-            $receivedResponse->getAssertion()->getAuthnContextClassRef()
+            $receivedResponse->getAuthnContextClassRef()
         );
 
         if (!$receivedLoa->levelIsHigherOrEqualTo($requiredLoa)) {
@@ -334,7 +333,7 @@ class EngineBlock_Corto_Module_Service_StepupAssertionConsumer implements Engine
         EngineBlock_Saml2_ResponseAnnotationDecorator $originalReceivedResponse,
         EngineBlock_Saml2_ResponseAnnotationDecorator $stepupReceivedResponse
     ): void {
-        if ($originalReceivedResponse->getNameID()->getValue() !== $stepupReceivedResponse->getNameID()->getValue()) {
+        if ($originalReceivedResponse->getNameIdValue() !== $stepupReceivedResponse->getNameIdValue()) {
             throw new EngineBlock_Exception(
                 'Stepup authentication failed, the received NameID from Stepup does not match the one we sent out.'
             );

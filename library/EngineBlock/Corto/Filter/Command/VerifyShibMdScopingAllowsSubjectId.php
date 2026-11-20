@@ -20,7 +20,7 @@ use OpenConext\EngineBlock\Metadata\ShibMdScope;
 use OpenConext\Value\Saml\Metadata\ShibbolethMetadataScope;
 use OpenConext\Value\Saml\Metadata\ShibbolethMetadataScopeList;
 use Psr\Log\LoggerInterface;
-use SAML2\Constants;
+use SimpleSAML\SAML2\Constants;
 
 class EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectId extends
     EngineBlock_Corto_Filter_Command_Abstract
@@ -55,7 +55,7 @@ class EngineBlock_Corto_Filter_Command_VerifyShibMdScopingAllowsSubjectId extend
             return;
         }
 
-        $attributes = $this->_response->getAssertion()->getAttributes();
+        $attributes = $this->_response->getAttributes();
         if (!isset($attributes[Constants::ATTR_SUBJECT_ID])) {
             $this->logger->notice('No subject-id found in response, not verifying');
 

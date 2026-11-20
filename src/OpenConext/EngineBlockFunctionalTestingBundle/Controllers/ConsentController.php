@@ -18,9 +18,10 @@
 
 namespace OpenConext\EngineBlockFunctionalTestingBundle\Controllers;
 
+use OpenConext\EngineBlock\Saml2\Message\Saml2Value;
 use OpenConext\EngineBlockFunctionalTestingBundle\Helper\TestEntitySeeder;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Twig\Environment;
@@ -104,9 +105,7 @@ class ConsentController
         if ($attributeAggregationEnabled) {
             $attributes['urn:mace:surf.nl:attribute-def:eckid'] = ['joe-f12-eck-id'];
             $attributes['urn:mace:dir:attribute-def:eduPersonOrcid'] = ['https://orcid.org/0000-0002-9079-593X'];
-            $nameId = new NameID();
-            $nameId->setFormat(Constants::NAMEID_PERSISTENT);
-            $nameId->setValue('34872398723498723497293487');
+            $nameId = Saml2Value::nameId('34872398723498723497293487', Constants::NAMEID_PERSISTENT);
 
             $attributes['urn:mace:dir:attribute-def:eduPersonTargetedID'] = [$nameId];
 
@@ -152,12 +151,10 @@ class ConsentController
     private function getNameId(Request $request): NameID
     {
         $nameIdValue = $request->query->get('name-id', 'user@openconext');
-        $nameId = new NameID();
-        if ($nameIdValue !== 'user@openconext') {
-            $nameId->setFormat(Constants::NAMEID_UNSPECIFIED);
-        }
-        $nameId->setValue($nameIdValue);
-        return $nameId;
+        return Saml2Value::nameId(
+            (string) $nameIdValue,
+            $nameIdValue !== 'user@openconext' ? Constants::NAMEID_UNSPECIFIED : null
+        );
     }
 
     private function isPersistentNameId(Request $request): bool
